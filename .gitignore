@@ -1,0 +1,18 @@
+# Datos generados: se regeneran localmente con generate_data.py (semilla fija = 42),
+# no hace falta versionarlos (son ~24 MB y darian el mismo resultado en cualquier PC).
+*.npy
+
+# Entornos / cache de Python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+.venv/
+env/
+
+# Resultados crudos de benchmarking (csv/json) -> si prefieren versionarlos para
+# comparar entre los 2 computadores, borren estas lineas.
+results/*.csv
+results/*.json
+
+# Archivos del sistema
+.DS_Store
