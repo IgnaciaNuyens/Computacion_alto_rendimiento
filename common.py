@@ -5,6 +5,7 @@ Esto NO es una de las "tres versiones" pedidas en el enunciado (esas se
 diferencian por como resamplean/ajustan cada bootstrap); es solo I/O y
 calculo del intervalo de confianza, para no repetir ese codigo 3 veces.
 """
+import argparse
 import csv
 import platform
 import time
@@ -25,6 +26,23 @@ RESULTS_DIR = DATA_DIR / "results"
 # interno de sklearn (via random_state), asi que sus indices no calzan uno
 # a uno con estas dos, aunque el resultado estadistico deberia ser similar.
 RESAMPLE_SEED = 123
+
+
+def build_argparser(description):
+    """Argparser comun a las 3 versiones: p (procesos), B (resamples) y
+    t (threads internos de BLAS por proceso, para las partes e/i).
+
+    t=1 por defecto: con paralelismo de PROCESOS (joblib) lo seguro es
+    partir asumiendo 1 thread interno por proceso y despues, en la parte
+    (i), explorar a proposito otras combinaciones (p, t) con p*t <= p_max.
+    Ver README y la seccion "Oversubscription" mas abajo en cada script.
+    """
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--p", type=int, default=1, help="numero de procesos (n_jobs de joblib)")
+    parser.add_argument("--B", type=int, default=48, help="numero de resamples bootstrap")
+    parser.add_argument("--threads", "-t", type=int, default=1,
+                         help="threads internos de BLAS/OpenMP permitidos POR PROCESO (threadpoolctl)")
+    return parser
 
 
 def load_data():

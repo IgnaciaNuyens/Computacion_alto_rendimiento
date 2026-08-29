@@ -7,7 +7,7 @@ septiembre 2026, 23:59.**
 ## Estado actual
 
 - [x] **(a) Generación de datos** — `generate_data.py` (hecho por Ignacia)
-- [x] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (+ `common.py` con utilidades compartidas). Faltaría redactar en el informe el "comente sus distintas mejoras" con números reales de varias corridas.
+- [x] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (+ `common.py` con utilidades compartidas), ya iteradas y con la bitácora de mejoras documentada abajo. Falta pasar esto al informe en PDF.
 - [ ] **(c) Correctitud y reproducibilidad**
 - [ ] **(d) Cómo crea procesos el backend `multiprocessing` de joblib**
 - [ ] **(e) Oversubscription con `threadpoolctl`**
@@ -51,18 +51,86 @@ Python/numpy si es posible, para que los tiempos sean comparables).
 
 ```
 generate_data.py       # (a) - listo
-bs_auto.py              # (b) - BaggingRegressor(n_jobs=p)
-bs_sklearn.py            # (b) - joblib.Parallel + LinearRegression
-bs_numpy.py               # (b) - joblib.Parallel + solución normal con numpy puro
-benchmark.py             # corre las 3 versiones para p=1..p_max y guarda tiempos
-oversubscription.py      # (e) - threadpool_info() variando p
-grid_pt.py                # (i) - grid (p, t) con threadpool_limits
-results/                  # csv/json de tiempos, por máquina (ver mas abajo)
-  results_pc1.csv
-  results_pc2.csv
-plots/                    # figuras para el informe
-informe/                   # fuente del informe (o link a Overleaf en este README)
+common.py                # (b) - utilidades compartidas: load_data, argparser, IC bootstrap, guardar tiempos
+bs_auto.py                 # (b) - listo: BaggingRegressor(n_jobs=p)
+bs_sklearn.py                # (b) - listo: joblib.Parallel + LinearRegression
+bs_numpy.py                    # (b) - listo: joblib.Parallel + ecuaciones normales con numpy puro
+benchmark.py                     # (f) - TODO: corre las 3 versiones para p=1..p_max y guarda tiempos
+oversubscription.py                # (e) - TODO: threadpool_info() variando p
+grid_pt.py                           # (i) - TODO: grid (p, t) con threadpool_limits
+results/                               # csv/json de tiempos, por máquina (ver mas abajo)
+  timings.csv                            # se genera solo, cada corrida de bs_*.py agrega una fila (gitignored)
+plots/                                   # TODO: figuras para el informe
+informe/                                   # TODO: fuente del informe (o link a Overleaf en este README)
 ```
+
+## Parte (b): bitácora de iteración (para el "comente sus mejoras" del enunciado)
+
+Todo esto se corrió en el mismo computador (8 cores lógicos), datos de
+`generate_data.py`, B=48. Guarden esta sección para el informe.
+
+**1. `bs_numpy.py`: invertir a mano vs. `np.linalg.solve`.**
+La fórmula del enunciado es β̂ = (XᵀX)⁻¹Xᵀy, pero calcular la inversa
+explícita es más caro (factorización + un producto matricial extra) y menos
+estable que resolver el sistema directamente.
+
+| Variante | Tiempo (p=8, t=1, B=48) |
+|---|---|
+| `np.linalg.inv(XtX) @ Xty` (v0, literal del enunciado) | 2.013 s |
+| `np.linalg.solve(XtX, Xty)` (v1, versión final) | 0.956 s (**~2.1x más rápido**) |
+
+**2. Oversubscription: `threadpoolctl.threadpool_limits`.**
+Con `threadpool_info()` (parte e) se detectó que el NumPy de este entorno
+usa **Intel MKL con 4 threads por proceso por defecto**. Eso significa que
+al lanzar `joblib.Parallel(n_jobs=8)`, cada uno de los 8 procesos abre
+además sus propios threads de BLAS: se puede llegar a ~32 threads
+compitiendo por 8 cores físicos/lógicos (oversubscription). Al envolver el
+bloque paralelo en `threadpool_limits(limits=t)` y fijar `t=1` para `p=8`:
+
+| Config (`bs_numpy.py`, B=48) | Tiempo |
+|---|---|
+| p=8, sin limitar threads | 1.857 s |
+| p=8, `threadpool_limits(1)` | 1.465 s (**~21% más rápido**) |
+
+Esto se agregó a las 3 versiones vía el flag `--threads`/`-t` (ver
+`common.build_argparser`), que además es justo lo que pide la parte (i)
+más adelante (grid de `p` × `t`).
+
+**3. `copy_X=False`: optimización que se descartó por incorrecta.**
+Se probó `LinearRegression(copy_X=False)` para evitar que sklearn haga una
+copia interna extra de cada resample. En `bs_sklearn.py` es seguro (cada
+resample ya es un array `Xb = X[idx]` nuevo y descartable) — resultados
+idénticos con y sin el flag, se mantiene. Pero en `bs_auto.py`
+(`BaggingRegressor`) **rompía los resultados**: la varianza de los
+coeficientes bootstrap se disparaba ~20x (0.01 → 0.12–0.25) y los
+resultados cambiaban entre p=1 y p=8, porque `BaggingRegressor` no arma un
+`Xb` nuevo por estimador — reutiliza el mismo buffer de `X` y pasa un
+`sample_weight` con las cuentas del bootstrap, así que `copy_X=False` deja
+que cada `.fit()` modifique ese buffer compartido in-place. Se revirtió a
+`copy_X=True` (default) en `bs_auto.py`. Buena anécdota para el informe:
+"iterar y comentar mejoras" también implica descartar una optimización que
+resultó ser un bug, no solo quedarse con la más rápida.
+
+**Tiempos finales (versión iterada, B=48, en este computador):**
+
+| Versión | p=1, t=8 | p=8, t=1 |
+|---|---|---|
+| `bs_numpy` | 1.25 s | 2.15 s |
+| `bs_sklearn` | 4.69 s | 7.01 s |
+| `bs_auto` | 5.67 s | 11.55 s |
+
+Ojo: en **esta** máquina (WSL2, 8 cores lógicos compartidos con el host de
+Windows), p=1 con threads=8 salió más rápido que p=8 con threads=1 para las
+3 versiones — el overhead de crear 8 procesos supera lo que se gana
+paralelizando 48 tareas relativamente cortas. Esto es justo el tipo de
+resultado que hay que reportar (no forzar) en las partes (f)-(h): el
+overhead puede dominar dependiendo del tamaño del problema y del hardware.
+Prueben esto también en el otro computador del grupo para la parte (j).
+
+`bs_numpy` es consistentemente la más rápida de las 3 (ecuaciones normales
+directas), luego `bs_sklearn` (resuelve por SVD vía `scipy.linalg.lstsq`,
+más robusto pero más caro), y `bs_auto` es la más lenta (mismo ajuste que
+`bs_sklearn` pero con el overhead extra de `BaggingRegressor`).
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 

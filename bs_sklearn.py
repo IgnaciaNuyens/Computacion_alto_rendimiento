@@ -5,17 +5,23 @@ El paralelismo lo manejamos NOSOTROS con joblib.Parallel(n_jobs=p): nosotros
 generamos los B resamples y lanzamos un joblib.delayed por resample. El
 ajuste de cada resample lo hace sklearn.linear_model.LinearRegression.
 
+Iteracion: se agrego copy_X=False (evita que sklearn haga una copia interna
+extra del resample, que ya es una copia en si mismo por el fancy indexing
+X[idx]) y threadpool_limits(threads) alrededor del bloque paralelo, por la
+misma razon de oversubscription que en bs_numpy.py (ver ese archivo y el
+README para los numeros medidos).
+
 Uso:
-    python bs_sklearn.py --p 4 --B 48
+    python bs_sklearn.py --p 4 --B 48 --threads 1
 """
-import argparse
 import time
 
 import numpy as np
 from joblib import Parallel, delayed
 from sklearn.linear_model import LinearRegression
+from threadpoolctl import threadpool_limits
 
-from common import load_data, resample_seeds, summarize, save_timing
+from common import build_argparser, load_data, resample_seeds, summarize, save_timing
 
 VERSION = "bs_sklearn"
 
@@ -26,18 +32,16 @@ def fit_resample(X, y, seed):
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, X.shape[0], size=X.shape[0])
     Xb, yb = X[idx], y[idx]
-    # X ya trae la columna de 1's agregada en generate_data.py, por eso
-    # fit_intercept=False: si no, sklearn sumaria OTRO intercepto ademas
-    # del que ya esta codificado como primera columna de X.
-    model = LinearRegression(fit_intercept=False)
+    # fit_intercept=False: X ya trae la columna de 1's (parte a), si no
+    # sklearn sumaria OTRO intercepto ademas del que ya esta en X.
+    # copy_X=False: no dupliques Xb en memoria, ya es una copia (X[idx]).
+    model = LinearRegression(fit_intercept=False, copy_X=False)
     model.fit(Xb, yb)
     return model.coef_
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Bootstrap con joblib.Parallel + sklearn LinearRegression")
-    parser.add_argument("--p", type=int, default=1, help="n_jobs para joblib.Parallel")
-    parser.add_argument("--B", type=int, default=48, help="numero de resamples")
+    parser = build_argparser("Bootstrap con joblib.Parallel + sklearn LinearRegression")
     args = parser.parse_args()
 
     X, y, beta_true = load_data()
@@ -46,12 +50,14 @@ def main():
     beta_hat_full = LinearRegression(fit_intercept=False).fit(X, y).coef_
 
     # Paso 2: B resamples, cada uno con su propia semilla independiente.
+    # threadpool_limits evita oversubscription (ver bs_numpy.py / README).
     seeds = resample_seeds(args.B)
-    t0 = time.perf_counter()
-    results = Parallel(n_jobs=args.p)(
-        delayed(fit_resample)(X, y, s) for s in seeds
-    )
-    elapsed = time.perf_counter() - t0
+    with threadpool_limits(limits=args.threads):
+        t0 = time.perf_counter()
+        results = Parallel(n_jobs=args.p)(
+            delayed(fit_resample)(X, y, s) for s in seeds
+        )
+        elapsed = time.perf_counter() - t0
     beta_samples = np.array(results)  # (B, k+1)
 
     summarize(VERSION, args.p, args.B, elapsed, beta_hat_full, beta_samples, beta_true)
