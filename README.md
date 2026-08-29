@@ -7,7 +7,7 @@ septiembre 2026, 23:59.**
 ## Estado actual
 
 - [x] **(a) Generación de datos** — `generate_data.py` (hecho por Ignacia)
-- [ ] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py`
+- [x] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (+ `common.py` con utilidades compartidas). Faltaría redactar en el informe el "comente sus distintas mejoras" con números reales de varias corridas.
 - [ ] **(c) Correctitud y reproducibilidad**
 - [ ] **(d) Cómo crea procesos el backend `multiprocessing` de joblib**
 - [ ] **(e) Oversubscription con `threadpoolctl`**
@@ -37,8 +37,12 @@ que dos máquinas dieron lo mismo, comparen con `np.array_equal` o un hash
 ```
 conda create -n tarea1-hpc python=3.13 -y
 conda activate tarea1-hpc
-conda install numpy matplotlib joblib threadpoolctl -y
+conda install numpy matplotlib joblib threadpoolctl scikit-learn -y
 ```
+
+(El enunciado no lista `scikit-learn` en el comando de instalación, pero
+`bs_auto.py` y `bs_sklearn.py` lo necesitan — `BaggingRegressor` y
+`LinearRegression` son de ahí.)
 
 Instalen el mismo entorno en ambos computadores del grupo (misma versión de
 Python/numpy si es posible, para que los tiempos sean comparables).
