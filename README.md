@@ -13,7 +13,7 @@ septiembre 2026, 23:59.**
 - [x] **(e) Oversubscription con `threadpoolctl`** hecha con `oversubscription.py`, resultados y explicación abajo.
 - [x] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones** hecha con `benchmark.py`, resultados y explicación abajo.
 - [x] **(g) Speedup S(p) y eficiencia E(p)** hecha con `speedup_efficiency.py`, resultados y explicación abajo.
-- [ ] **(h) Overhead T_o(p)**
+- [x] **(h) Overhead T_o(p)** hecha con `overhead.py`, resultados y explicación abajo.
 - [ ] **(i) Grid de (procesos p) x (threads t) con p·t ≤ p_max**
 - [ ] **(j) Comparación entre los 2 computadores**
 - [ ] Informe final en PDF
@@ -60,7 +60,8 @@ inspect_workers.py                 # (d) - listo: muestra que hace joblib con lo
 oversubscription.py                  # (e) - listo: threadpool_info() y tiempos variando p y t
 benchmark.py                           # (f) - listo: T(p) para las 3 versiones, p=1..p_max, con repeticiones
 speedup_efficiency.py                    # (g) - listo: S(p) y E(p) a partir del csv de benchmark.py
-grid_pt.py                                 # (i) - TODO: grid (p, t) con threadpool_limits
+overhead.py                                # (h) - listo: T0(p) a partir del csv de benchmark.py
+grid_pt.py                                   # (i) - TODO: grid (p, t) con threadpool_limits
 results/                               # csv de tiempos, por máquina (ver mas abajo)
   timings.csv                            # se genera solo, cada corrida de bs_*.py agrega una fila (gitignored)
   benchmark_<nombre del computador>.csv    # se genera solo, benchmark.py agrega una fila por repetición (gitignored)
@@ -357,6 +358,65 @@ La clase 7 define el speedup máximo posible en función de una fracción serial
 `bs_auto` con S(8) igual a 1.819 implica una f de 0.485.
 
 Ojo con leer esto de forma literal. Las 48 tareas de nuestro bootstrap son independientes entre sí, no hay ninguna parte del algoritmo que sea intrínsecamente serial en el sentido de la clase 7. Lo que esta f está capturando en la práctica es todo el overhead que sí medimos en las partes (d) y (e), crear y coordinar procesos, y el ruido de una máquina compartida, disfrazado de fracción serial porque la fórmula de Amdahl no distingue entre las dos cosas. Que `bs_auto` necesite la f más alta para explicar su speedup (0.485) calza con que también fue la versión más lenta y más irregular en la parte (f). La parte (h) va a separar esto de forma más directa, calculando el overhead T0 en vez de inferir una f a partir del speedup.
+
+## Parte (h). Overhead T sub o de p
+
+Otra vez no corrimos nada nuevo, reutilizamos los mismos tiempos T(p) que ya quedaron guardados en la parte (f). Escribimos `overhead.py`, que calcula exactamente lo que definió la clase 7, T0 de p igual a p por Tp menos T1. T0 igual a 0 es el caso ideal, todo el tiempo que suman los p procesos es trabajo útil. T0 mayor a 0 es tiempo que se gastó en coordinación, esperas o trabajo repetido, y no en avanzar el cálculo. Se corre así.
+
+```
+python overhead.py --hostname LAPTOP-DJ126R18
+```
+
+Estos son los resultados en este computador. La columna T0 sobre T1 muestra el overhead como múltiplo del tiempo que tomaba correr todo con un solo proceso, para poder comparar entre versiones que parten de tiempos base muy distintos.
+
+### bs_numpy, T1 es 2.832 segundos
+
+| p | T(p) | p por T(p) | T0(p) | T0 sobre T1 |
+|---|---|---|---|---|
+| 1 | 2.832 | 2.832 | 0.000 | 0.000 |
+| 2 | 2.047 | 4.093 | 1.261 | 0.445 |
+| 3 | 1.407 | 4.221 | 1.389 | 0.491 |
+| 4 | 1.485 | 5.940 | 3.108 | 1.098 |
+| 5 | 1.446 | 7.229 | 4.397 | 1.553 |
+| 6 | 1.404 | 8.424 | 5.592 | 1.975 |
+| 7 | 1.397 | 9.778 | 6.946 | 2.453 |
+| 8 | 1.117 | 8.937 | 6.105 | 2.156 |
+
+### bs_sklearn, T1 es 7.896 segundos
+
+| p | T(p) | p por T(p) | T0(p) | T0 sobre T1 |
+|---|---|---|---|---|
+| 1 | 7.896 | 7.896 | 0.000 | 0.000 |
+| 2 | 8.718 | 17.436 | 9.541 | 1.208 |
+| 3 | 4.574 | 13.722 | 5.826 | 0.738 |
+| 4 | 5.670 | 22.681 | 14.786 | 1.873 |
+| 5 | 5.009 | 25.046 | 17.151 | 2.172 |
+| 6 | 6.234 | 37.402 | 29.507 | 3.737 |
+| 7 | 4.329 | 30.301 | 22.405 | 2.838 |
+| 8 | 4.013 | 32.105 | 24.210 | 3.066 |
+
+### bs_auto, T1 es 8.868 segundos
+
+| p | T(p) | p por T(p) | T0(p) | T0 sobre T1 |
+|---|---|---|---|---|
+| 1 | 8.868 | 8.868 | 0.000 | 0.000 |
+| 2 | 10.040 | 20.081 | 11.212 | 1.264 |
+| 3 | 6.925 | 20.776 | 11.908 | 1.343 |
+| 4 | 5.350 | 21.401 | 12.532 | 1.413 |
+| 5 | 4.084 | 20.418 | 11.550 | 1.302 |
+| 6 | 4.095 | 24.570 | 15.702 | 1.771 |
+| 7 | 5.258 | 36.806 | 27.938 | 3.150 |
+| 8 | 4.875 | 39.000 | 30.132 | 3.398 |
+
+### Lo que dicen estos números
+
+En las tres versiones T0 crece con p, y crece más rápido que T1. En p=8, el overhead ya es entre 2 y 3.4 veces el tiempo que tomaba correr todo con un solo proceso, según la versión. Dicho de otra forma, de todo el tiempo de cómputo que sumaron los 8 procesos juntos, más de dos tercios en el peor caso se fue en coordinación y esperas, no en avanzar el ajuste del bootstrap.
+
+`bs_numpy` tiene el overhead relativo más bajo en casi todos los p, calza con que también fue la versión con mejor eficiencia en la parte (g), y no es casualidad, las dos métricas describen exactamente lo mismo desde ángulos distintos. De hecho se puede escribir Ep en función de T0, ya que p por Tp es igual a T1 más T0, entonces Ep es igual a 1 dividido por 1 más T0 sobre T1. Con `bs_numpy` en p=8, T0 sobre T1 vale 2.156, así que Ep predicho es 1 dividido por 3.156, que da 0.317, exactamente lo que habíamos calculado de forma independiente en la parte (g). La parte (g) y esta parte (h) no son dos experimentos distintos, son la misma medición mirada con dos fórmulas distintas de la clase 7.
+
+También se nota que T0 no crece de forma perfectamente pareja, por ejemplo en `bs_numpy` el overhead en p=8 es un poco más chico que en p=7. Eso es el mismo ruido de la máquina compartida que venimos comentando desde la parte (e), no un fenómeno nuevo, y otra razón más para tomar estos números como una tendencia general y no como valores exactos.
+
+Por último, esta fórmula de T0 junta en un solo número dos cosas que en las partes anteriores sí separamos, el costo real de crear y coordinar procesos (parte d) y el ruido propio de esta máquina (parte e). La parte (i), variando threads además de procesos, es la que nos va a permitir ver si parte de este overhead se puede reducir eligiendo mejor la combinación de p y t, en vez de solo asumir que más procesos siempre ayudan.
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 
