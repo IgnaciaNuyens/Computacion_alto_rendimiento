@@ -12,7 +12,7 @@ septiembre 2026, 23:59.**
 - [x] **(d) Cómo crea procesos el backend `multiprocessing` de joblib** hecha con `inspect_workers.py`, resultados y explicación abajo.
 - [x] **(e) Oversubscription con `threadpoolctl`** hecha con `oversubscription.py`, resultados y explicación abajo.
 - [x] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones** hecha con `benchmark.py`, resultados y explicación abajo.
-- [ ] **(g) Speedup S(p) y eficiencia E(p)**
+- [x] **(g) Speedup S(p) y eficiencia E(p)** hecha con `speedup_efficiency.py`, resultados y explicación abajo.
 - [ ] **(h) Overhead T_o(p)**
 - [ ] **(i) Grid de (procesos p) x (threads t) con p·t ≤ p_max**
 - [ ] **(j) Comparación entre los 2 computadores**
@@ -59,7 +59,8 @@ verify_correctness.py            # (c) - listo: reproducibilidad y correctitud e
 inspect_workers.py                 # (d) - listo: muestra que hace joblib con los procesos worker
 oversubscription.py                  # (e) - listo: threadpool_info() y tiempos variando p y t
 benchmark.py                           # (f) - listo: T(p) para las 3 versiones, p=1..p_max, con repeticiones
-grid_pt.py                               # (i) - TODO: grid (p, t) con threadpool_limits
+speedup_efficiency.py                    # (g) - listo: S(p) y E(p) a partir del csv de benchmark.py
+grid_pt.py                                 # (i) - TODO: grid (p, t) con threadpool_limits
 results/                               # csv de tiempos, por máquina (ver mas abajo)
   timings.csv                            # se genera solo, cada corrida de bs_*.py agrega una fila (gitignored)
   benchmark_<nombre del computador>.csv    # se genera solo, benchmark.py agrega una fila por repetición (gitignored)
@@ -285,6 +286,77 @@ Algunas cosas para comentar en el informe, con estos números todavía crudos, a
 `bs_sklearn` y `bs_auto` no bajan de forma pareja, en p=2 las dos incluso empeoraron un poco respecto a p=1, y recién mejoran de forma clara desde p=3 en adelante. Esto es ruido de la máquina compartida (lo mismo que ya vimos en la parte e), pero también algo real, con solo 48 tareas para repartir, pasar de 1 a 2 procesos agrega el costo de crear un proceso nuevo (visto en la parte d) sin alcanzar a repartir tanto trabajo todavía, así que a veces el resultado no compensa de inmediato.
 
 Ninguna de las tres versiones se acerca al speedup ideal de p, para eso ya tenemos la parte (g), que va a poner estos mismos números en la fórmula de speedup y eficiencia de la clase 7 y va a dejar más claro cuánto de esta diferencia es overhead real y cuánto es la parte que efectivamente sí se pudo paralelizar.
+
+## Parte (g). Speedup S(p) y eficiencia E(p)
+
+Esta parte no necesita correr nada nuevo, usa los mismos tiempos T(p) que ya quedaron guardados en la parte (f), en `results/benchmark_<nombre del computador>.csv`. Escribimos `speedup_efficiency.py`, que lee ese archivo y calcula, para cada versión, exactamente las fórmulas de la clase 7, Sp igual a T1 dividido por Tp, y Ep igual a Sp dividido por p. Se corre así.
+
+```
+python speedup_efficiency.py --hostname LAPTOP-DJ126R18
+```
+
+(cambien `LAPTOP-DJ126R18` por el nombre de su propio computador, que es el mismo que aparece en el nombre del archivo csv que generó `benchmark.py`).
+
+Estos son los resultados en este computador, usando T(1) de cada versión como base.
+
+### bs_numpy, T(1) es 2.832 segundos
+
+| p | T(p) | S(p) | E(p) |
+|---|---|---|---|
+| 1 | 2.832 | 1.000 | 1.000 |
+| 2 | 2.047 | 1.384 | 0.692 |
+| 3 | 1.407 | 2.013 | 0.671 |
+| 4 | 1.485 | 1.907 | 0.477 |
+| 5 | 1.446 | 1.959 | 0.392 |
+| 6 | 1.404 | 2.017 | 0.336 |
+| 7 | 1.397 | 2.027 | 0.290 |
+| 8 | 1.117 | 2.535 | 0.317 |
+
+### bs_sklearn, T(1) es 7.896 segundos
+
+| p | T(p) | S(p) | E(p) |
+|---|---|---|---|
+| 1 | 7.896 | 1.000 | 1.000 |
+| 2 | 8.718 | 0.906 | 0.453 |
+| 3 | 4.574 | 1.726 | 0.575 |
+| 4 | 5.670 | 1.392 | 0.348 |
+| 5 | 5.009 | 1.576 | 0.315 |
+| 6 | 6.234 | 1.267 | 0.211 |
+| 7 | 4.329 | 1.824 | 0.261 |
+| 8 | 4.013 | 1.967 | 0.246 |
+
+### bs_auto, T(1) es 8.868 segundos
+
+| p | T(p) | S(p) | E(p) |
+|---|---|---|---|
+| 1 | 8.868 | 1.000 | 1.000 |
+| 2 | 10.040 | 0.883 | 0.442 |
+| 3 | 6.925 | 1.281 | 0.427 |
+| 4 | 5.350 | 1.658 | 0.414 |
+| 5 | 4.084 | 2.172 | 0.434 |
+| 6 | 4.095 | 2.166 | 0.361 |
+| 7 | 5.258 | 1.687 | 0.241 |
+| 8 | 4.875 | 1.819 | 0.227 |
+
+### Lo que dicen estos números
+
+Ninguna de las tres versiones se acerca al speedup ideal, Sp igual a p con Ep igual a 1, que la clase 7 define como caso ideal. El caso más llamativo es p igual a 2, donde `bs_sklearn` y `bs_auto` tienen speedup por debajo de 1, o sea corren más lento con 2 procesos que con uno solo. Ya lo habíamos visto crudo en la parte (f), y acá queda numéricamente confirmado, con pocas tareas para repartir (48 resamples), el costo de crear un proceso adicional (que vimos en la parte d) puede superar por completo lo que se gana al paralelizar, sobre todo cuando cada tarea individual ya es rápida.
+
+La eficiencia de las tres versiones cae de forma bastante consistente a medida que p crece, de 1.000 en p=1 a valores entre 0.23 y 0.32 en p=8. Esto es justo lo que la clase 7 anticipa para el caso práctico, Ep menor a 1 y decreciente, en contraste con el caso ideal.
+
+`bs_numpy` es la que mejor se comporta en las dos métricas, mayor speedup en p=8 (2.535) y también mejor eficiencia en casi todos los p intermedios. Tiene sentido, cada una de sus 48 tareas es la más liviana de las tres versiones (resuelve directamente las ecuaciones normales, como vimos en la parte b), así que el trabajo útil por tarea es más chico en comparación con el overhead fijo de repartir esa tarea a un proceso, lo que en teoría debería jugar en contra suyo, pero en la práctica sale mejor parada que las otras dos de todas formas.
+
+### Qué dice la ley de Amdahl de estos números
+
+La clase 7 define el speedup máximo posible en función de una fracción serial f, Sp menor o igual a 1 dividido por f más 1 menos f dividido por p. Dando vuelta esa fórmula, se puede usar el S(8) medido de cada versión para calcular qué fracción serial f explicaría ese resultado si el único motivo del speedup imperfecto fuera código no paralelizable.
+
+`bs_numpy` con S(8) igual a 2.535 implica una f de 0.308.
+
+`bs_sklearn` con S(8) igual a 1.967 implica una f de 0.438.
+
+`bs_auto` con S(8) igual a 1.819 implica una f de 0.485.
+
+Ojo con leer esto de forma literal. Las 48 tareas de nuestro bootstrap son independientes entre sí, no hay ninguna parte del algoritmo que sea intrínsecamente serial en el sentido de la clase 7. Lo que esta f está capturando en la práctica es todo el overhead que sí medimos en las partes (d) y (e), crear y coordinar procesos, y el ruido de una máquina compartida, disfrazado de fracción serial porque la fórmula de Amdahl no distingue entre las dos cosas. Que `bs_auto` necesite la f más alta para explicar su speedup (0.485) calza con que también fue la versión más lenta y más irregular en la parte (f). La parte (h) va a separar esto de forma más directa, calculando el overhead T0 en vez de inferir una f a partir del speedup.
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 
