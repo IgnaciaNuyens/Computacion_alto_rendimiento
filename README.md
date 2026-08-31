@@ -9,7 +9,7 @@ septiembre 2026, 23:59.**
 - [x] **(a) Generación de datos** — `generate_data.py` (hecho por Ignacia)
 - [x] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (+ `common.py` con utilidades compartidas), ya iteradas y con la bitácora de mejoras documentada abajo. Falta pasar esto al informe en PDF.
 - [x] **(c) Correctitud y reproducibilidad** hecha con `verify_correctness.py`, resultados y explicación abajo.
-- [ ] **(d) Cómo crea procesos el backend `multiprocessing` de joblib**
+- [x] **(d) Cómo crea procesos el backend `multiprocessing` de joblib** hecha con `inspect_workers.py`, resultados y explicación abajo.
 - [ ] **(e) Oversubscription con `threadpoolctl`**
 - [ ] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones**
 - [ ] **(g) Speedup S(p) y eficiencia E(p)**
@@ -56,7 +56,8 @@ bs_auto.py                 # (b) - listo: BaggingRegressor(n_jobs=p)
 bs_sklearn.py                # (b) - listo: joblib.Parallel + LinearRegression
 bs_numpy.py                    # (b) - listo: joblib.Parallel + ecuaciones normales con numpy puro
 verify_correctness.py            # (c) - listo: reproducibilidad y correctitud entre las 3 versiones
-benchmark.py                     # (f) - TODO: corre las 3 versiones para p=1..p_max y guarda tiempos
+inspect_workers.py                 # (d) - listo: muestra que hace joblib con los procesos worker
+benchmark.py                         # (f) - TODO: corre las 3 versiones para p=1..p_max y guarda tiempos
 oversubscription.py                # (e) - TODO: threadpool_info() variando p
 grid_pt.py                           # (i) - TODO: grid (p, t) con threadpool_limits
 results/                               # csv/json de tiempos, por máquina (ver mas abajo)
@@ -182,6 +183,36 @@ El hallazgo de oversubscription (demasiados threads de BLAS compitiendo por los 
 La diferencia de velocidad entre invertir la matriz a mano y usar `np.linalg.solve` es un ejemplo directo de lo que dice la clase 2 sobre que la velocidad de un programa depende del algoritmo usado y no solo del hardware.
 
 La pérdida de precisión al sumar en distinto orden, usada arriba para explicar por qué `bs_sklearn` y `bs_numpy` no dan exactamente lo mismo, es el mismo fenómeno de asociatividad de punto flotante que se vio en la clase de paralelismo a nivel de instrucciones.
+
+## Parte (d). Como crea procesos el backend multiprocessing de joblib
+
+Esta parte es teórica, no depende de tener las 3 versiones listas, así que cualquiera del grupo puede escribirla ya. Para no quedarnos solo con una explicación de memoria, escribimos `inspect_workers.py`, que hace que cada tarea (cada resample) devuelva el pid del proceso que la ejecutó, y con eso se puede ver con datos reales qué hace joblib por dentro.
+
+Se corre así.
+
+```
+python inspect_workers.py --p 4 --B 8
+```
+
+### Con p igual a 1 no se crea ningún proceso nuevo
+
+Cuando `n_jobs=1`, las 4 tareas de prueba corrieron todas con el mismo pid que el proceso principal. Joblib no crea ningún proceso nuevo en ese caso, simplemente ejecuta las tareas una por una dentro del mismo proceso que llamó a `Parallel`. Esto explica por qué en la parte (b) usamos p=1 como punto de comparación base, ahí no hay overhead de creación de procesos que restar.
+
+### Con p mayor a 1, joblib arma un grupo de procesos y los reutiliza
+
+Con `n_jobs=4` y 8 tareas, aparecieron solo 3 pids distintos entre las 8 tareas (esto varía entre corridas, otras veces salieron los 4). La cantidad de procesos worker nunca superó el p pedido, y cada proceso resolvió varias tareas seguidas, no se creó un proceso nuevo por cada una de las 48 resamples que usamos en la parte (b). Esto calza justo con el worker que se definió en la clase 7, "un proceso del sistema operativo". Joblib arma un grupo fijo de como máximo p procesos de esos al principio, y les va repartiendo las tareas a medida que van quedando libres, en vez de crear y destruir un proceso nuevo por cada resample, que sería mucho más caro.
+
+### Cada proceso tiene su propia memoria
+
+Lo importante de que sean procesos y no threads es que cada uno tiene su propio espacio de memoria, no comparten variables entre sí como sí lo hacen los threads dentro de un mismo proceso. En la clase 7 esto corresponde a la arquitectura MIMD con memoria distribuida, "cada procesador tiene su propia memoria, se comunican por mensajes". En nuestro caso los "procesadores" son procesos de Python corriendo en la misma máquina y no nodos de un cluster, pero la idea es la misma, no hay una memoria única compartida entre ellos como sí la hay entre threads que corren en cores distintos de un mismo chip. Eso lo vimos en la clase 5, ahí sí hace falta un protocolo de coherencia de caché como MESI porque los threads comparten memoria escribible. Acá no aplica, porque los procesos de joblib no comparten memoria escribible entre sí.
+
+### El caso especial de arreglos grandes como X
+
+Al inspeccionar qué tipo de objeto le llega a cada tarea, `X` (24 MB) llegó como `numpy.memmap` en vez de `numpy.ndarray` cuando p es mayor a 1, mientras que `y` (menos de 0.1 MB) siguió llegando como un `ndarray` normal. Esto quiere decir que joblib no copió los 24 MB de `X` para cada una de las tareas, en vez de eso los procesos worker leen el mismo arreglo mapeado desde un archivo temporal, sin duplicarlo por cada tarea. Si joblib copiara `X` completo cada vez que se lanza una tarea, con 48 resamples estaríamos moviendo más de 1 GB de memoria solo para repartir los datos, justo el tipo de costo que la clase 3 identifica como caro, mover datos tiene costo de ancho de banda y de latencia. Para `y`, como es chica, no vale la pena mapearla, se copia normal.
+
+### La asignación de tareas no es reproducible, pero el resultado sí
+
+Qué proceso ejecuta cuál tarea puede cambiar entre una corrida y otra, en nuestras pruebas a veces se usaron 3 procesos y otras veces 4 para el mismo p=4. Pero eso no rompe nada de lo que verificamos en la parte (c), porque cada tarea depende solo de su propia semilla y de leer `X` e `y`, nunca de una variable compartida que otra tarea pudiera estar modificando al mismo tiempo. Por eso el resultado final del bootstrap es siempre el mismo sin importar en qué orden ni en qué proceso se haya calculado cada resample.
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 
