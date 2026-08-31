@@ -10,7 +10,7 @@ septiembre 2026, 23:59.**
 - [x] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (+ `common.py` con utilidades compartidas), ya iteradas y con la bitácora de mejoras documentada abajo. Falta pasar esto al informe en PDF.
 - [x] **(c) Correctitud y reproducibilidad** hecha con `verify_correctness.py`, resultados y explicación abajo.
 - [x] **(d) Cómo crea procesos el backend `multiprocessing` de joblib** hecha con `inspect_workers.py`, resultados y explicación abajo.
-- [ ] **(e) Oversubscription con `threadpoolctl`**
+- [x] **(e) Oversubscription con `threadpoolctl`** hecha con `oversubscription.py`, resultados y explicación abajo.
 - [ ] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones**
 - [ ] **(g) Speedup S(p) y eficiencia E(p)**
 - [ ] **(h) Overhead T_o(p)**
@@ -57,9 +57,9 @@ bs_sklearn.py                # (b) - listo: joblib.Parallel + LinearRegression
 bs_numpy.py                    # (b) - listo: joblib.Parallel + ecuaciones normales con numpy puro
 verify_correctness.py            # (c) - listo: reproducibilidad y correctitud entre las 3 versiones
 inspect_workers.py                 # (d) - listo: muestra que hace joblib con los procesos worker
-benchmark.py                         # (f) - TODO: corre las 3 versiones para p=1..p_max y guarda tiempos
-oversubscription.py                # (e) - TODO: threadpool_info() variando p
-grid_pt.py                           # (i) - TODO: grid (p, t) con threadpool_limits
+oversubscription.py                  # (e) - listo: threadpool_info() y tiempos variando p y t
+benchmark.py                           # (f) - TODO: corre las 3 versiones para p=1..p_max y guarda tiempos
+grid_pt.py                               # (i) - TODO: grid (p, t) con threadpool_limits
 results/                               # csv/json de tiempos, por máquina (ver mas abajo)
   timings.csv                            # se genera solo, cada corrida de bs_*.py agrega una fila (gitignored)
 plots/                                   # TODO: figuras para el informe
@@ -81,21 +81,25 @@ estable que resolver el sistema directamente.
 | `np.linalg.inv(XtX) @ Xty` (v0, literal del enunciado) | 2.013 s |
 | `np.linalg.solve(XtX, Xty)` (v1, versión final) | 0.956 s (**~2.1x más rápido**) |
 
-**2. Oversubscription: `threadpoolctl.threadpool_limits`.**
-Con `threadpool_info()` (parte e) se detectó que el NumPy de este entorno
-usa **Intel MKL con 4 threads por proceso por defecto**. Eso significa que
-al lanzar `joblib.Parallel(n_jobs=8)`, cada uno de los 8 procesos abre
-además sus propios threads de BLAS: se puede llegar a ~32 threads
-compitiendo por 8 cores físicos/lógicos (oversubscription). Al envolver el
-bloque paralelo en `threadpool_limits(limits=t)` y fijar `t=1` para `p=8`:
-
-| Config (`bs_numpy.py`, B=48) | Tiempo |
-|---|---|
-| p=8, sin limitar threads | 1.857 s |
-| p=8, `threadpool_limits(1)` | 1.465 s (**~21% más rápido**) |
-
-Esto se agregó a las 3 versiones vía el flag `--threads`/`-t` (ver
-`common.build_argparser`), que además es justo lo que pide la parte (i)
+**2. Threads internos de BLAS, primera medición y por qué no bastaba con una sola corrida.**
+Con `threadpool_info()` se detectó que el NumPy de este entorno usa Intel
+MKL con 4 threads por proceso por defecto, y OpenMP con 8. Eso significa
+que al lanzar `joblib.Parallel(n_jobs=8)`, cada uno de los 8 procesos
+podía abrir además sus propios threads de BLAS, llegando en teoría a
+muchos más threads que cores físicos hay en la máquina. La primera
+medición que hicimos, una sola corrida, mostró una mejora clara al fijar
+`threadpool_limits(1)` (de 1.857 s bajó a 1.465 s). Pero esta máquina es
+una VM de WSL2 compartida con el host de Windows, el ruido entre
+corridas es alto, y al repetir la medición varias veces en la parte (e),
+usando la mediana de 3 repeticiones por configuración, esa mejora no se
+sostuvo de forma tan clara. Dejamos el detalle completo, con la tabla
+real de p y t, en la parte (e) más abajo, junto con la lección de fondo,
+una sola corrida no alcanza para concluir que un efecto de rendimiento
+es real. Igual mantuvimos el flag `--threads`/`-t` en las 3 versiones
+(vía `common.build_argparser`), porque no medir y no poder controlar el
+número de threads internos habría sido peor que medirlo y encontrar que
+en esta máquina cambia menos de lo que pensábamos, además es justo lo
+que pide la parte (i)
 más adelante (grid de `p` × `t`).
 
 **3. `copy_X=False`: optimización que se descartó por incorrecta.**
@@ -213,6 +217,42 @@ Al inspeccionar qué tipo de objeto le llega a cada tarea, `X` (24 MB) llegó co
 ### La asignación de tareas no es reproducible, pero el resultado sí
 
 Qué proceso ejecuta cuál tarea puede cambiar entre una corrida y otra, en nuestras pruebas a veces se usaron 3 procesos y otras veces 4 para el mismo p=4. Pero eso no rompe nada de lo que verificamos en la parte (c), porque cada tarea depende solo de su propia semilla y de leer `X` e `y`, nunca de una variable compartida que otra tarea pudiera estar modificando al mismo tiempo. Por eso el resultado final del bootstrap es siempre el mismo sin importar en qué orden ni en qué proceso se haya calculado cada resample.
+
+## Parte (e). Oversubscription con threadpoolctl
+
+Esta parte retoma algo que ya habíamos tocado de pasada en la parte (b), qué pasa cuando pedimos más hilos de trabajo de los que la máquina puede atender de verdad al mismo tiempo. Para medirlo con cuidado escribimos `oversubscription.py`, que corre así.
+
+```
+python oversubscription.py --B 48
+```
+
+### Cuántos threads abre NumPy por defecto
+
+Con `threadpool_info()` se ve qué librería de álgebra lineal está detrás de NumPy en este entorno y cuántos threads usa por defecto. Acá aparecen dos, MKL para las operaciones de BLAS con 4 threads por defecto, y OpenMP con 8. Eso importa porque cada uno de esos threads es independiente del número de procesos p que le pidamos a `joblib.Parallel`. Si no hacemos nada, cada uno de los p procesos puede intentar abrir sus propios threads de MKL por su cuenta, sin que joblib se entere ni lo coordine.
+
+### Qué es oversubscription en este contexto
+
+Esta máquina tiene 8 cores lógicos (`os.cpu_count()`). Si lanzamos p procesos y cada uno usa t threads internos de BLAS, en total estamos pidiendo p multiplicado por t hilos de trabajo. Mientras ese número se mantenga en 8 o menos, cada hilo puede tener su propio core. Apenas ese número supera los 8 cores disponibles, varios hilos tienen que turnarse el mismo core, eso es oversubscription. Con p=8 y sin controlar t, en teoría podríamos llegar a 32 hilos compitiendo por 8 cores.
+
+### Lo que medimos
+
+Corrimos el ajuste de `bs_numpy.py` con distintas combinaciones de p y t, tomando la mediana de 3 repeticiones por combinación para no confiar en una sola corrida (esta máquina es una VM compartida con Windows, el ruido entre corridas es real, ya lo comentamos en la parte b). Estos son los tiempos, en segundos, sobre 48 resamples.
+
+Con p=1 y t=1 (un solo proceso, un solo thread, cero paralelismo) el ajuste demoró 2.73 segundos, la configuración más lenta con diferencia.
+
+Con p=1 y t=8 (un solo proceso, pero dejando que BLAS use los 8 cores por su cuenta) bajó a 0.93 segundos, casi tres veces más rápido, sin lanzar ni un proceso adicional.
+
+Con p=8 y t=1 (8 procesos, cada uno restringido a un solo thread) quedó en 0.96 segundos, prácticamente empatado con la opción anterior, pero llegando ahí por un camino completamente distinto, repartiendo las 48 tareas entre 8 procesos en vez de acelerar cada tarea por dentro.
+
+Con p=8 y t igual a 2, 4 u 8 (8 procesos, cada uno con varios threads internos, en teoría con 16, 32 y 64 hilos compitiendo por 8 cores) los tiempos quedaron entre 0.89 y 0.93 segundos, dentro del mismo rango que p=8 con t=1.
+
+### Qué aprendimos de esto
+
+Lo más claro y sólido de esta medición es que ir de cero paralelismo (p=1, t=1) a cualquiera de las otras opciones ayuda muchísimo, ahí está casi todo el rendimiento que se puede ganar en esta máquina para este problema.
+
+Lo que no se sostuvo fue la diferencia grande que habíamos medido en la parte (b) entre p=8 sin controlar threads y p=8 con `threadpool_limits(1)`. Con una sola corrida esa diferencia se veía clara, pero al repetir la medición y tomar la mediana, todas las combinaciones con p=8 quedaron parecidas entre sí, estén o no oversubscritas según nuestro criterio de p por t contra los cores disponibles. La lección de fondo, la misma que ya habíamos aplicado en la parte (c) para la reproducibilidad, es que una sola corrida no alcanza para concluir que un efecto de rendimiento es real, sobre todo en una máquina compartida como esta.
+
+Aun así, seguimos dejando el flag `--threads` en las 3 versiones y seguimos usando t=1 como valor por defecto cuando p se acerca a la cantidad de cores. No midió peor en ningún caso, y es la opción más simple de razonar, un core por proceso, así que la mantenemos como base para la parte (i), donde vamos a explorar la grilla completa de p y t con muchas más repeticiones, y ahí sí quedarnos con una conclusión firme sobre si conviene o no dejar que cada proceso use más de un thread interno cuando p ya está cerca del número de cores.
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 
