@@ -14,7 +14,7 @@ septiembre 2026, 23:59.**
 - [x] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones** hecha con `benchmark.py`, resultados y explicación abajo.
 - [x] **(g) Speedup S(p) y eficiencia E(p)** hecha con `speedup_efficiency.py`, resultados y explicación abajo.
 - [x] **(h) Overhead T_o(p)** hecha con `overhead.py`, resultados y explicación abajo.
-- [ ] **(i) Grid de (procesos p) x (threads t) con p·t ≤ p_max**
+- [x] **(i) Grid de (procesos p) x (threads t) con p·t ≤ p_max** hecha con `grid_pt.py`, resultados y explicación abajo.
 - [ ] **(j) Comparación entre los 2 computadores**
 - [ ] Informe final en PDF
 
@@ -61,7 +61,7 @@ oversubscription.py                  # (e) - listo: threadpool_info() y tiempos 
 benchmark.py                           # (f) - listo: T(p) para las 3 versiones, p=1..p_max, con repeticiones
 speedup_efficiency.py                    # (g) - listo: S(p) y E(p) a partir del csv de benchmark.py
 overhead.py                                # (h) - listo: T0(p) a partir del csv de benchmark.py
-grid_pt.py                                   # (i) - TODO: grid (p, t) con threadpool_limits
+grid_pt.py                                   # (i) - listo: grilla de p y t con p por t hasta p_max
 results/                               # csv de tiempos, por máquina (ver mas abajo)
   timings.csv                            # se genera solo, cada corrida de bs_*.py agrega una fila (gitignored)
   benchmark_<nombre del computador>.csv    # se genera solo, benchmark.py agrega una fila por repetición (gitignored)
@@ -417,6 +417,53 @@ En las tres versiones T0 crece con p, y crece más rápido que T1. En p=8, el ov
 También se nota que T0 no crece de forma perfectamente pareja, por ejemplo en `bs_numpy` el overhead en p=8 es un poco más chico que en p=7. Eso es el mismo ruido de la máquina compartida que venimos comentando desde la parte (e), no un fenómeno nuevo, y otra razón más para tomar estos números como una tendencia general y no como valores exactos.
 
 Por último, esta fórmula de T0 junta en un solo número dos cosas que en las partes anteriores sí separamos, el costo real de crear y coordinar procesos (parte d) y el ruido propio de esta máquina (parte e). La parte (i), variando threads además de procesos, es la que nos va a permitir ver si parte de este overhead se puede reducir eligiendo mejor la combinación de p y t, en vez de solo asumir que más procesos siempre ayudan.
+
+## Parte (i). Grilla de procesos p y threads t con p por t hasta p_max
+
+Las partes (e) y (h) dejaron una pregunta abierta, para una cantidad fija de hilos de trabajo, conviene más dejar que cada proceso use varios threads internos de BLAS, o conviene repartir en más procesos con un solo thread cada uno. Esta parte responde eso de forma directa, probando todas las combinaciones de p y t que cumplen p por t menor o igual a p_max (8 en esta máquina), no solo las combinaciones sueltas que ya habíamos probado antes. Escribimos `grid_pt.py` para esto, se corre así.
+
+```
+python grid_pt.py --pmax 8 --B 48 --repeticiones 3
+```
+
+Por defecto corre sobre `bs_numpy`, la versión con menor overhead según las partes (f), (g) y (h), aunque el script también acepta `--version bs_sklearn` o `--version bs_auto` para correr la misma grilla sobre las otras dos.
+
+Estos son los 20 pares de p y t posibles con p por t hasta 8, con la mediana de 3 repeticiones cada uno, para `bs_numpy`.
+
+| p | t | p por t | tiempo (s) |
+|---|---|---|---|
+| 1 | 1 | 1 | 2.408 |
+| 1 | 2 | 2 | 1.188 |
+| 1 | 3 | 3 | 1.036 |
+| 1 | 4 | 4 | 1.004 |
+| 1 | 5 | 5 | 0.994 |
+| 1 | 6 | 6 | 1.227 |
+| 1 | 7 | 7 | 1.582 |
+| 1 | 8 | 8 | 1.478 |
+| 2 | 1 | 2 | 3.243 |
+| 2 | 2 | 4 | 1.838 |
+| 2 | 3 | 6 | 2.574 |
+| 2 | 4 | 8 | 3.006 |
+| 3 | 1 | 3 | 1.751 |
+| 3 | 2 | 6 | 1.558 |
+| 4 | 1 | 4 | 1.607 |
+| 4 | 2 | 8 | 1.588 |
+| 5 | 1 | 5 | 1.384 |
+| 6 | 1 | 6 | 1.406 |
+| 7 | 1 | 7 | 1.656 |
+| 8 | 1 | 8 | 1.492 |
+
+### La mejor combinación no fue la que esperábamos
+
+La combinación más rápida de las 20 fue p igual a 1 con t igual a 5, en 0.994 segundos, un solo proceso dejando que BLAS use 5 threads internos. No fue ninguna de las combinaciones con varios procesos que veníamos usando desde la parte (b). Mirando solo la fila de p igual a 1, el tiempo baja rápido desde t igual a 1 (2.408 segundos) hasta un piso entre t igual a 3 y t igual a 5 (alrededor de 1 segundo), y después vuelve a subir un poco en t igual a 6, 7 y 8. O sea, ni siquiera dentro de un solo proceso conviene usar todos los threads disponibles, hay un punto medio.
+
+Con p mayor a 1 los tiempos nunca bajaron de 1.3 segundos, y el peor resultado de toda la grilla fue justamente p igual a 2 con t igual a 1 (3.243 segundos), más lento incluso que p igual a 1 con t igual a 1.
+
+### Por qué pasa esto
+
+Esto calza con todo lo que veníamos midiendo. En la parte (d) vimos que cada proceso worker tiene un costo real de creación y coordinación, y que joblib arma un grupo de procesos que se reutiliza, no procesos gratis. Un thread interno de BLAS no paga ese mismo costo, corre dentro del mismo proceso que ya está corriendo, comparte su memoria sin necesidad de mensajes ni de mapear archivos como vimos que hace joblib con arreglos grandes en la parte (d). Para las 48 tareas de nuestro bootstrap, cada una relativamente liviana (resolver un sistema de 301 por 301, no una tarea larga), el costo de abrir un proceso nuevo pesa más que el costo de abrir un thread nuevo, así que en esta máquina, para este problema, escalar con threads le gana a escalar con procesos.
+
+Esto no quiere decir que la parte (b) haya estado mal al elegir joblib con procesos como esquema principal, el enunciado pide específicamente paralelismo con procesos, y además un problema más grande, con resamples más caros o con B mucho mayor a 48, podría cambiar esta conclusión, porque ahí el costo fijo de crear procesos pesaría menos frente al trabajo real de cada tarea. Lo que esta parte (i) deja claro es que esa suposición hay que medirla, no darla por sentada, y que la mejor combinación de p y t depende del tamaño del problema, no es siempre la misma.
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 
