@@ -8,7 +8,7 @@ septiembre 2026, 23:59.**
 
 - [x] **(a) Generación de datos** — `generate_data.py` (hecho por Ignacia)
 - [x] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (+ `common.py` con utilidades compartidas), ya iteradas y con la bitácora de mejoras documentada abajo. Falta pasar esto al informe en PDF.
-- [ ] **(c) Correctitud y reproducibilidad**
+- [x] **(c) Correctitud y reproducibilidad** hecha con `verify_correctness.py`, resultados y explicación abajo.
 - [ ] **(d) Cómo crea procesos el backend `multiprocessing` de joblib**
 - [ ] **(e) Oversubscription con `threadpoolctl`**
 - [ ] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones**
@@ -55,6 +55,7 @@ common.py                # (b) - utilidades compartidas: load_data, argparser, I
 bs_auto.py                 # (b) - listo: BaggingRegressor(n_jobs=p)
 bs_sklearn.py                # (b) - listo: joblib.Parallel + LinearRegression
 bs_numpy.py                    # (b) - listo: joblib.Parallel + ecuaciones normales con numpy puro
+verify_correctness.py            # (c) - listo: reproducibilidad y correctitud entre las 3 versiones
 benchmark.py                     # (f) - TODO: corre las 3 versiones para p=1..p_max y guarda tiempos
 oversubscription.py                # (e) - TODO: threadpool_info() variando p
 grid_pt.py                           # (i) - TODO: grid (p, t) con threadpool_limits
@@ -131,6 +132,56 @@ Prueben esto también en el otro computador del grupo para la parte (j).
 directas), luego `bs_sklearn` (resuelve por SVD vía `scipy.linalg.lstsq`,
 más robusto pero más caro), y `bs_auto` es la más lenta (mismo ajuste que
 `bs_sklearn` pero con el overhead extra de `BaggingRegressor`).
+
+## Parte (c). Correctitud y reproducibilidad
+
+Esta parte responde dos preguntas separadas sobre las tres versiones. Primero, si corremos lo mismo dos veces obtenemos lo mismo (reproducibilidad). Segundo, si las tres versiones calculan lo mismo aunque tomen caminos distintos (correctitud). El script `verify_correctness.py` deja esto medido con números reales, no solo explicado en palabras. Se corre así.
+
+```
+python verify_correctness.py --p 4 --B 48 --threads 1
+```
+
+### Reproducibilidad
+
+Se corrió cada versión dos veces, con los mismos datos y las mismas semillas, y se compararon los arreglos de coeficientes resultantes con `np.array_equal`, que exige que sean idénticos bit a bit, no solo parecidos.
+
+Las tres versiones dieron exactamente lo mismo en ambas corridas. Esto no es casualidad, viene de cómo quedó armado todo desde la parte (a). `generate_data.py` usa una semilla fija (42) para generar `X`, `y` y `beta_true`. `common.RESAMPLE_SEED` (123) fija qué índices caen en cada uno de los 48 resamples de `bs_sklearn.py` y `bs_numpy.py`. Y `bs_auto.py` fija su propio `random_state` (también 123) para el resampleo interno de `BaggingRegressor`. Con la misma entrada, las operaciones de punto flotante que hace cada versión (sumar, multiplicar, resolver un sistema lineal) siempre producen el mismo resultado, así que no hay forma de que dos corridas den algo distinto.
+
+Esto es justamente lo que hace posible que cualquiera del grupo corra `generate_data.py` en su propio computador y obtenga los mismos datos, sin tener que compartir los archivos `.npy` (ya lo habíamos comentado antes en este README). Ahora queda claro que lo mismo aplica a los resultados completos del bootstrap, no solo a los datos de entrada.
+
+### Correctitud entre bs_sklearn y bs_numpy
+
+Estas dos versiones usan exactamente los mismos 48 resamples (las mismas filas de `X` en cada resample). La única diferencia entre ellas es el método numérico usado para ajustar la regresión. `bs_sklearn.py` resuelve por mínimos cuadrados vía `scipy.linalg.lstsq` (una factorización tipo SVD), mientras que `bs_numpy.py` arma y resuelve directamente las ecuaciones normales con `np.linalg.solve`.
+
+Si el resampleo es el mismo, ambos métodos deberían llegar prácticamente al mismo lugar, y eso es lo que se midió. Comparando los 48 por 301 coeficientes que calcula cada versión, la diferencia absoluta más grande entre ambas fue muchísimo más chica que cualquier coeficiente real (del orden de una billonésima), y el promedio de esa diferencia fue todavía más chico. Son valores del tamaño de la precisión que permite un `double` (52 bits de fracción, como se vio en la clase 2 al hablar de punto flotante). No dan cero exacto porque cada método suma y multiplica los números en un orden distinto internamente, y la suma en punto flotante no es asociativa, exactamente el fenómeno que se vio en la clase de paralelismo a nivel de instrucciones con el ejemplo de sumar 1e20 más menos 1e20 más 1.0, donde el 1.0 se pierde según el orden en que se sume. Que la diferencia entre ambas versiones sea de ese tamaño tan chico, y no algo como 0.01 o 1.0, es justamente la evidencia de que las dos implementaciones son correctas y están calculando lo mismo.
+
+### Correctitud estadística de las tres versiones
+
+`bs_auto.py` no comparte resamples con las otras dos (usa el generador interno de `BaggingRegressor`, ya lo señalamos en la parte (b)), así que no tiene sentido compararla coeficiente a coeficiente. Lo que sí se puede comparar es si las tres describen la misma distribución bootstrap, viendo cuántos de los 301 coeficientes verdaderos (`beta_true`) caen dentro del intervalo de confianza 95% que arma cada versión, y qué tan ancho es ese intervalo en promedio.
+
+Estos son los resultados con B=48 y los datos de `generate_data.py`.
+
+`bs_numpy` cubrió 275 de 301 coeficientes, con un ancho promedio de intervalo de 0.03702.
+
+`bs_sklearn` cubrió 275 de 301, ancho promedio 0.03702, prácticamente igual a `bs_numpy`, como era de esperar dado el punto anterior.
+
+`bs_auto` cubrió 277 de 301, ancho promedio 0.03654.
+
+Las tres cifras están cerca unas de otras, así que las tres versiones están estimando la misma distribución bootstrap aunque `bs_auto` haya llegado ahí con resamples distintos. Ninguna de las tres llega al 95% de cobertura nominal (que serían 286 de 301), y eso es esperable con B solo igual a 48. Un intervalo percentil necesita bastantes más resamples para que sus extremos (percentil 2.5 y percentil 97.5) queden bien estimados. No es un error de las implementaciones, es una limitación conocida del método con este tamaño de B, y también queda como material útil para comentar en el informe.
+
+### Sobre usar solo lo visto en clase
+
+Antes de seguir con la parte (d), dejamos apuntado de dónde sale cada explicación que dimos en las partes (a), (b) y (c), para que quede claro que todo se apoya en lo visto en clase y no en herramientas ajenas al curso.
+
+La reproducibilidad de la parte (a) (semilla fija, mismos datos en cualquier computador) y la de esta parte (c) se explican con lo mismo, operaciones de punto flotante deterministas sobre la misma entrada, tal como se ve al hablar de precisión doble en la clase 2.
+
+El worker de la parte (b) (cada uno de los p procesos que lanza `joblib.Parallel`) es exactamente la definición de worker que se dio en la clase 7, "un proceso del sistema operativo (Python multiprocessing)".
+
+El hallazgo de oversubscription (demasiados threads de BLAS compitiendo por los mismos cores cuando ya hay varios procesos) se apoya en la idea de multicore de la clase 2 (varios núcleos físicos por chip) y en el concepto de worker de la clase 7. `threadpoolctl` solo la usamos como herramienta para medir y controlar algo que el curso ya explica en principio, no estamos trayendo un concepto nuevo de afuera.
+
+La diferencia de velocidad entre invertir la matriz a mano y usar `np.linalg.solve` es un ejemplo directo de lo que dice la clase 2 sobre que la velocidad de un programa depende del algoritmo usado y no solo del hardware.
+
+La pérdida de precisión al sumar en distinto orden, usada arriba para explicar por qué `bs_sklearn` y `bs_numpy` no dan exactamente lo mismo, es el mismo fenómeno de asociatividad de punto flotante que se vio en la clase de paralelismo a nivel de instrucciones.
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 
