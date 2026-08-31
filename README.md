@@ -9,7 +9,7 @@ de septiembre 2026, a las 23:59.
 - [x] **(a) Generación de datos**, `generate_data.py` (hecho por Ignacia)
 - [x] **(b) Tres implementaciones**, `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (más `common.py` con utilidades compartidas), ya iteradas y con la bitácora de mejoras documentada abajo. Falta pasar esto al informe en PDF.
 - [x] **(c) Correctitud y reproducibilidad** hecha con `verify_correctness.py`, resultados y explicación abajo.
-- [x] **(d) Cómo crea procesos el backend `multiprocessing` de joblib** hecha con `inspect_workers.py`, resultados y explicación abajo.
+- [x] **(d) Cómo crea procesos el backend `multiprocessing` de joblib** explicación abajo.
 - [x] **(e) Oversubscription con `threadpoolctl`** hecha con `oversubscription.py`, resultados y explicación abajo.
 - [x] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones** hecha con `benchmark.py`, resultados y explicación abajo.
 - [x] **(g) Speedup S(p) y eficiencia E(p)** hecha con `speedup_efficiency.py`, resultados y explicación abajo.
@@ -56,7 +56,6 @@ bs_auto.py                # parte b, BaggingRegressor(n_jobs=p)
 bs_sklearn.py              # parte b, joblib.Parallel + LinearRegression
 bs_numpy.py                 # parte b, joblib.Parallel + ecuaciones normales
 verify_correctness.py        # parte c
-inspect_workers.py            # parte d
 oversubscription.py            # parte e
 benchmark.py                    # parte f, guarda tiempos en results/
 speedup_efficiency.py            # parte g, lee el csv de benchmark.py
@@ -171,13 +170,7 @@ Tratamos de explicar todo con lo que hemos visto en las clases, sin meter concep
 
 ## Parte (d). Como crea procesos el backend multiprocessing de joblib
 
-Esta parte es teórica, no depende de tener las 3 versiones listas, así que cualquiera del grupo puede escribirla ya. Para no quedarnos solo con una explicación de memoria, escribimos `inspect_workers.py`, que hace que cada tarea (cada resample) devuelva el pid del proceso que la ejecutó, y con eso se puede ver con datos reales qué hace joblib por dentro.
-
-Se corre así.
-
-```
-python inspect_workers.py --p 4 --B 8
-```
+Esta parte es teórica, no depende de tener las 3 versiones listas. Para no quedarnos solo con una explicación de memoria, antes de escribirla hicimos una prueba rápida en la consola de Python, mandamos varias tareas chicas con `joblib.Parallel` y cada una devolvía el pid del proceso que la ejecutó y el tipo de dato que le llegaba como `X`. No lo dejamos como script porque es algo que se prueba una vez para confirmar cómo funciona, no algo que haya que volver a correr, pero los números de abajo son de esa prueba.
 
 ### Con p igual a 1 no se crea ningún proceso nuevo
 
