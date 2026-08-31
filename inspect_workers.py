@@ -2,14 +2,11 @@
 Tarea 1 - IIC3533. Parte (d). Como crea procesos el backend multiprocessing
 de joblib.
 
-Este script no explica con palabras, muestra con datos reales que pasa
-adentro de joblib.Parallel cuando corremos bs_sklearn.py o bs_numpy.py
-con distintos valores de p.
-
-Cada tarea (cada resample bootstrap) devuelve el pid del proceso que la
-ejecuto y el tipo de arreglo que le llego como X. Con eso alcanza para
-ver dos cosas, cuantos procesos usa joblib de verdad, y que hace con
-un arreglo grande como X.
+La parte (d) es mas de explicar con palabras, pero para no quedarnos solo
+con lo que dice la documentacion armamos este script chico, que hace que
+cada tarea devuelva el pid del proceso que la corrio y el tipo de dato que
+le llego como X. Asi vemos con numeros reales cuantos procesos usa joblib
+y que hace con un arreglo grande como X.
 
 Uso.
     python inspect_workers.py --p 4 --B 12

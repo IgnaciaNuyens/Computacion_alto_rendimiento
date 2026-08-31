@@ -1,15 +1,13 @@
 """
 Tarea 1 - IIC3533. Parte (e). Oversubscription con threadpoolctl.
 
-Este script mide directamente lo que pasa cuando el numero de procesos p
-y el numero de threads internos de BLAS t suman mas hilos de trabajo que
-cores fisicos hay en la maquina.
+Mide que pasa cuando el numero de procesos p y el numero de threads
+internos de BLAS t suman mas hilos que cores tiene la maquina.
 
-Primero muestra que libreria de algebra lineal esta usando numpy y
-cuantos threads abre por defecto (threadpool_info). Despues corre el
-ajuste de bs_numpy.py con distintas combinaciones de p y t, y para cada
-una calcula p por t, para comparar contra la cantidad de cores
-disponibles (os.cpu_count).
+Primero muestra que libreria de algebra lineal usa numpy y cuantos
+threads abre por defecto (threadpool_info). Despues corre bs_numpy.py con
+distintas combinaciones de p y t, y compara p por t contra la cantidad de
+cores (os.cpu_count).
 
 Uso.
     python oversubscription.py --B 48

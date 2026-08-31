@@ -1,19 +1,11 @@
 """
 Tarea 1 - IIC3533. Parte (c). Correctitud y reproducibilidad.
 
-Este script corre las tres versiones sobre los mismos datos y responde
-dos preguntas por separado.
-
-Primero, reproducibilidad. Si corremos la misma version dos veces con
-los mismos datos y la misma semilla, obtenemos exactamente el mismo
-resultado. Esto es lo que la parte (a) del enunciado pedia al fijar la
-semilla de generate_data.py, y aqui se extiende a la semilla de
-resampleo (common.RESAMPLE_SEED) y al random_state de bs_auto.py.
-
-Segundo, correctitud. Las tres versiones estiman el mismo objeto
-estadistico (el intervalo de confianza bootstrap de cada coeficiente
-de la regresion), asi que sus resultados deben ser consistentes entre
-si, aunque el camino para llegar a ellos sea distinto en cada caso.
+Corremos las tres versiones sobre los mismos datos y revisamos dos cosas.
+Primero, si corremos la misma version dos veces con la misma semilla, nos
+tiene que dar exactamente lo mismo (reproducibilidad). Segundo, si las
+tres versiones terminan estimando mas o menos lo mismo aunque calculen
+las cosas de forma distinta por dentro (correctitud).
 
 Uso:
     python verify_correctness.py --p 4 --B 48

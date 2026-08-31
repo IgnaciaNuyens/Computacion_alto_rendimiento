@@ -1,13 +1,13 @@
-# Tarea 1 — IIC3533 Computación de Alto Rendimiento (2026-2)
+# Tarea 1, IIC3533 Computación de Alto Rendimiento (2026-2)
 
 Bootstrapping paralelo para regresión lineal con `joblib`. Grupo de 3 personas,
-experimentos en al menos 2 computadores distintos. **Entrega: viernes 11 de
-septiembre 2026, 23:59.**
+experimentos en al menos 2 computadores distintos. La entrega es el viernes 11
+de septiembre 2026, a las 23:59.
 
 ## Estado actual
 
-- [x] **(a) Generación de datos** — `generate_data.py` (hecho por Ignacia)
-- [x] **(b) Tres implementaciones** — `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (+ `common.py` con utilidades compartidas), ya iteradas y con la bitácora de mejoras documentada abajo. Falta pasar esto al informe en PDF.
+- [x] **(a) Generación de datos**, `generate_data.py` (hecho por Ignacia)
+- [x] **(b) Tres implementaciones**, `bs_auto.py`, `bs_sklearn.py`, `bs_numpy.py` (más `common.py` con utilidades compartidas), ya iteradas y con la bitácora de mejoras documentada abajo. Falta pasar esto al informe en PDF.
 - [x] **(c) Correctitud y reproducibilidad** hecha con `verify_correctness.py`, resultados y explicación abajo.
 - [x] **(d) Cómo crea procesos el backend `multiprocessing` de joblib** hecha con `inspect_workers.py`, resultados y explicación abajo.
 - [x] **(e) Oversubscription con `threadpoolctl`** hecha con `oversubscription.py`, resultados y explicación abajo.
@@ -25,12 +25,12 @@ python generate_data.py
 ```
 
 Genera `beta_true.npy`, `X.npy`, `y.npy` (N=10 000, k=300, semilla fija = 42).
-**No hace falta subir estos `.npy` al repo**: como la semilla está fija y
-`numpy.random.default_rng` es determinista (no depende del hardware), correr
-el script en cualquiera de los 2 computadores del grupo produce *exactamente*
-los mismos datos. Está en `.gitignore` por eso. Si en algún momento dudan de
-que dos máquinas dieron lo mismo, comparen con `np.array_equal` o un hash
-(`np.save` + `sha256sum`).
+No hace falta subir estos `.npy` al repo, porque la semilla está fija y
+`numpy.random.default_rng` es determinista (no depende del hardware), así
+que correr el script en cualquiera de los 2 computadores del grupo produce
+exactamente los mismos datos. Por eso está en `.gitignore`. Si en algún
+momento dudan de que dos máquinas dieron lo mismo, comparen con
+`np.array_equal` o un hash (`np.save` más `sha256sum`).
 
 ## Entorno
 
@@ -41,86 +41,79 @@ conda install numpy matplotlib joblib threadpoolctl scikit-learn -y
 ```
 
 (El enunciado no lista `scikit-learn` en el comando de instalación, pero
-`bs_auto.py` y `bs_sklearn.py` lo necesitan — `BaggingRegressor` y
-`LinearRegression` son de ahí.)
+`bs_auto.py` y `bs_sklearn.py` lo necesitan, de ahí salen `BaggingRegressor`
+y `LinearRegression`.)
 
 Instalen el mismo entorno en ambos computadores del grupo (misma versión de
 Python/numpy si es posible, para que los tiempos sean comparables).
 
-## Estructura del repo (propuesta)
+## Estructura del repo
 
 ```
-generate_data.py       # (a) - listo
-common.py                # (b) - utilidades compartidas: load_data, argparser, IC bootstrap, guardar tiempos
-bs_auto.py                 # (b) - listo: BaggingRegressor(n_jobs=p)
-bs_sklearn.py                # (b) - listo: joblib.Parallel + LinearRegression
-bs_numpy.py                    # (b) - listo: joblib.Parallel + ecuaciones normales con numpy puro
-verify_correctness.py            # (c) - listo: reproducibilidad y correctitud entre las 3 versiones
-inspect_workers.py                 # (d) - listo: muestra que hace joblib con los procesos worker
-oversubscription.py                  # (e) - listo: threadpool_info() y tiempos variando p y t
-benchmark.py                           # (f) - listo: T(p) para las 3 versiones, p=1..p_max, con repeticiones
-speedup_efficiency.py                    # (g) - listo: S(p) y E(p) a partir del csv de benchmark.py
-overhead.py                                # (h) - listo: T0(p) a partir del csv de benchmark.py
-grid_pt.py                                   # (i) - listo: grilla de p y t con p por t hasta p_max
-results/                               # csv de tiempos, por máquina (ver mas abajo)
-  timings.csv                            # se genera solo, cada corrida de bs_*.py agrega una fila (gitignored)
-  benchmark_<nombre del computador>.csv    # se genera solo, benchmark.py agrega una fila por repetición (gitignored)
-plots/                                   # TODO: figuras para el informe
-informe/                                   # TODO: fuente del informe (o link a Overleaf en este README)
+generate_data.py         # parte a, genera X.npy, y.npy, beta_true.npy
+common.py                # funciones compartidas por bs_auto/bs_sklearn/bs_numpy
+bs_auto.py                # parte b, BaggingRegressor(n_jobs=p)
+bs_sklearn.py              # parte b, joblib.Parallel + LinearRegression
+bs_numpy.py                 # parte b, joblib.Parallel + ecuaciones normales
+verify_correctness.py        # parte c
+inspect_workers.py            # parte d
+oversubscription.py            # parte e
+benchmark.py                    # parte f, guarda tiempos en results/
+speedup_efficiency.py            # parte g, lee el csv de benchmark.py
+overhead.py                       # parte h, lee el csv de benchmark.py
+grid_pt.py                         # parte i
+results/                     # csv de tiempos, uno por computador (gitignored)
+plots/                       # todavia no existe, figuras para el informe
+informe/                     # todavia no existe, fuente del informe en pdf
 ```
 
-## Parte (b): bitácora de iteración (para el "comente sus mejoras" del enunciado)
+## Parte (b). Iteración de las 3 implementaciones
 
-Todo esto se corrió en el mismo computador (8 cores lógicos), datos de
-`generate_data.py`, B=48. Guarden esta sección para el informe.
+El enunciado pide que comentemos las mejoras que hicimos, así que dejamos
+apuntado acá lo que fuimos probando. Todo esto se corrió en el mismo
+computador (8 cores lógicos), con los datos de `generate_data.py` y B=48.
 
-**1. `bs_numpy.py`: invertir a mano vs. `np.linalg.solve`.**
-La fórmula del enunciado es β̂ = (XᵀX)⁻¹Xᵀy, pero calcular la inversa
-explícita es más caro (factorización + un producto matricial extra) y menos
-estable que resolver el sistema directamente.
+**Invertir la matriz a mano versus `np.linalg.solve` en `bs_numpy.py`.**
+La fórmula del enunciado es beta gorro igual a la inversa de X traspuesta
+por X, todo multiplicado por X traspuesta por y. Al principio la
+calculamos literal así, con `np.linalg.inv`. Después probamos
+`np.linalg.solve`, que resuelve el mismo sistema de ecuaciones sin armar
+la inversa completa, y nos quedó bastante más rápido.
 
 | Variante | Tiempo (p=8, t=1, B=48) |
 |---|---|
-| `np.linalg.inv(XtX) @ Xty` (v0, literal del enunciado) | 2.013 s |
-| `np.linalg.solve(XtX, Xty)` (v1, versión final) | 0.956 s (**~2.1x más rápido**) |
+| `np.linalg.inv(XtX) @ Xty` (como sale literal en el enunciado) | 2.013 s |
+| `np.linalg.solve(XtX, Xty)` (con la que nos quedamos) | 0.956 s, alrededor de 2 veces más rápido |
 
-**2. Threads internos de BLAS, primera medición y por qué no bastaba con una sola corrida.**
-Con `threadpool_info()` se detectó que el NumPy de este entorno usa Intel
-MKL con 4 threads por proceso por defecto, y OpenMP con 8. Eso significa
-que al lanzar `joblib.Parallel(n_jobs=8)`, cada uno de los 8 procesos
-podía abrir además sus propios threads de BLAS, llegando en teoría a
-muchos más threads que cores físicos hay en la máquina. La primera
-medición que hicimos, una sola corrida, mostró una mejora clara al fijar
-`threadpool_limits(1)` (de 1.857 s bajó a 1.465 s). Pero esta máquina es
-una VM de WSL2 compartida con el host de Windows, el ruido entre
-corridas es alto, y al repetir la medición varias veces en la parte (e),
-usando la mediana de 3 repeticiones por configuración, esa mejora no se
-sostuvo de forma tan clara. Dejamos el detalle completo, con la tabla
-real de p y t, en la parte (e) más abajo, junto con la lección de fondo,
-una sola corrida no alcanza para concluir que un efecto de rendimiento
-es real. Igual mantuvimos el flag `--threads`/`-t` en las 3 versiones
-(vía `common.build_argparser`), porque no medir y no poder controlar el
-número de threads internos habría sido peor que medirlo y encontrar que
-en esta máquina cambia menos de lo que pensábamos, además es justo lo
-que pide la parte (i)
-más adelante (grid de `p` × `t`).
+**Threads internos de BLAS.**
+Con `threadpool_info()` vimos que el numpy de este entorno usa Intel MKL,
+que por defecto abre 4 threads por proceso, y también OpenMP con 8. Eso
+importa porque son threads que se abren aparte de los p procesos que le
+pedimos a `joblib.Parallel`. Probamos limitarlos con `threadpool_limits`
+y la primera corrida (una sola vez) dio una mejora bastante clara. Pero
+esta máquina es una VM de WSL2 compartida con el host de Windows y tiene
+harto ruido entre corridas, así que cuando lo volvimos a medir en la
+parte (e) con varias repeticiones, esa mejora no se sostuvo tan clara.
+Igual dejamos el flag `--threads` en las 3 versiones porque de todas
+formas lo íbamos a necesitar para la parte (i).
 
-**3. `copy_X=False`: optimización que se descartó por incorrecta.**
-Se probó `LinearRegression(copy_X=False)` para evitar que sklearn haga una
-copia interna extra de cada resample. En `bs_sklearn.py` es seguro (cada
-resample ya es un array `Xb = X[idx]` nuevo y descartable) — resultados
-idénticos con y sin el flag, se mantiene. Pero en `bs_auto.py`
-(`BaggingRegressor`) **rompía los resultados**: la varianza de los
-coeficientes bootstrap se disparaba ~20x (0.01 → 0.12–0.25) y los
-resultados cambiaban entre p=1 y p=8, porque `BaggingRegressor` no arma un
-`Xb` nuevo por estimador — reutiliza el mismo buffer de `X` y pasa un
-`sample_weight` con las cuentas del bootstrap, así que `copy_X=False` deja
-que cada `.fit()` modifique ese buffer compartido in-place. Se revirtió a
-`copy_X=True` (default) en `bs_auto.py`. Buena anécdota para el informe:
-"iterar y comentar mejoras" también implica descartar una optimización que
-resultó ser un bug, no solo quedarse con la más rápida.
+**`copy_X=False`, una mejora que descartamos porque estaba mal.**
+Probamos `LinearRegression(copy_X=False)` para que sklearn no haga una
+copia interna extra de cada resample. En `bs_sklearn.py` funcionó bien,
+cada resample ya es un array nuevo por el indexado `X[idx]`, así que no
+hay problema en no copiarlo de nuevo. Pero en `bs_auto.py`, que usa
+`BaggingRegressor`, los resultados salieron mal, la varianza de los
+coeficientes bootstrap quedaba mucho más alta de lo que esperábamos y
+además cambiaba entre p=1 y p=8. Investigando encontramos la razón,
+`BaggingRegressor` no arma un array nuevo por estimador como hacíamos
+nosotros a mano, reutiliza el mismo `X` y le pasa un `sample_weight` con
+las repeticiones del bootstrap, así que con `copy_X=False` cada ajuste
+modificaba ese mismo array compartido. Volvimos a dejarlo en el valor por
+defecto (`copy_X=True`) en `bs_auto.py`. Nos pareció importante dejarlo
+anotado porque muestra que iterar también es probar algo, notar que da
+mal, y devolverse.
 
-**Tiempos finales (versión iterada, B=48, en este computador):**
+**Tiempos con la versión final de cada script, en este computador.**
 
 | Versión | p=1, t=8 | p=8, t=1 |
 |---|---|---|
@@ -128,18 +121,13 @@ resultó ser un bug, no solo quedarse con la más rápida.
 | `bs_sklearn` | 4.69 s | 7.01 s |
 | `bs_auto` | 5.67 s | 11.55 s |
 
-Ojo: en **esta** máquina (WSL2, 8 cores lógicos compartidos con el host de
-Windows), p=1 con threads=8 salió más rápido que p=8 con threads=1 para las
-3 versiones — el overhead de crear 8 procesos supera lo que se gana
-paralelizando 48 tareas relativamente cortas. Esto es justo el tipo de
-resultado que hay que reportar (no forzar) en las partes (f)-(h): el
-overhead puede dominar dependiendo del tamaño del problema y del hardware.
-Prueben esto también en el otro computador del grupo para la parte (j).
-
-`bs_numpy` es consistentemente la más rápida de las 3 (ecuaciones normales
-directas), luego `bs_sklearn` (resuelve por SVD vía `scipy.linalg.lstsq`,
-más robusto pero más caro), y `bs_auto` es la más lenta (mismo ajuste que
-`bs_sklearn` pero con el overhead extra de `BaggingRegressor`).
+En esta máquina, usar un solo proceso con 8 threads internos salió más
+rápido que usar 8 procesos con un solo thread, en las 3 versiones. Esto
+lo volvemos a revisar con más cuidado en las partes (e) e (i). `bs_numpy`
+es la más rápida de las tres porque resuelve directo las ecuaciones
+normales, `bs_sklearn` ajusta con sklearn (que por dentro usa una
+factorización más robusta pero más cara), y `bs_auto` es la más lenta
+porque además tiene el overhead propio de `BaggingRegressor`.
 
 ## Parte (c). Correctitud y reproducibilidad
 
@@ -169,9 +157,9 @@ Si el resampleo es el mismo, ambos métodos deberían llegar prácticamente al m
 
 Estos son los resultados con B=48 y los datos de `generate_data.py`.
 
-`bs_numpy` cubrió 275 de 301 coeficientes, con un ancho promedio de intervalo de 0.03702.
+`bs_numpy` cubrió 278 de 301 coeficientes, con un ancho promedio de intervalo de 0.03717.
 
-`bs_sklearn` cubrió 275 de 301, ancho promedio 0.03702, prácticamente igual a `bs_numpy`, como era de esperar dado el punto anterior.
+`bs_sklearn` cubrió 278 de 301, ancho promedio 0.03717, prácticamente igual a `bs_numpy`, como era de esperar dado el punto anterior.
 
 `bs_auto` cubrió 277 de 301, ancho promedio 0.03654.
 
@@ -179,17 +167,7 @@ Las tres cifras están cerca unas de otras, así que las tres versiones están e
 
 ### Sobre usar solo lo visto en clase
 
-Antes de seguir con la parte (d), dejamos apuntado de dónde sale cada explicación que dimos en las partes (a), (b) y (c), para que quede claro que todo se apoya en lo visto en clase y no en herramientas ajenas al curso.
-
-La reproducibilidad de la parte (a) (semilla fija, mismos datos en cualquier computador) y la de esta parte (c) se explican con lo mismo, operaciones de punto flotante deterministas sobre la misma entrada, tal como se ve al hablar de precisión doble en la clase 2.
-
-El worker de la parte (b) (cada uno de los p procesos que lanza `joblib.Parallel`) es exactamente la definición de worker que se dio en la clase 7, "un proceso del sistema operativo (Python multiprocessing)".
-
-El hallazgo de oversubscription (demasiados threads de BLAS compitiendo por los mismos cores cuando ya hay varios procesos) se apoya en la idea de multicore de la clase 2 (varios núcleos físicos por chip) y en el concepto de worker de la clase 7. `threadpoolctl` solo la usamos como herramienta para medir y controlar algo que el curso ya explica en principio, no estamos trayendo un concepto nuevo de afuera.
-
-La diferencia de velocidad entre invertir la matriz a mano y usar `np.linalg.solve` es un ejemplo directo de lo que dice la clase 2 sobre que la velocidad de un programa depende del algoritmo usado y no solo del hardware.
-
-La pérdida de precisión al sumar en distinto orden, usada arriba para explicar por qué `bs_sklearn` y `bs_numpy` no dan exactamente lo mismo, es el mismo fenómeno de asociatividad de punto flotante que se vio en la clase de paralelismo a nivel de instrucciones.
+Tratamos de explicar todo con lo que hemos visto en las clases, sin meter conceptos de afuera. La idea de worker como proceso del sistema operativo es de la clase 7, la de multicore y que la velocidad depende del algoritmo y no solo del hardware es de la clase 2, y la pérdida de precisión al sumar en distinto orden (por qué `bs_sklearn` y `bs_numpy` no dan exactamente lo mismo) es la misma idea de punto flotante que se vio en esa clase. `threadpoolctl` lo usamos solo como herramienta para medir algo que el curso ya explica en principio.
 
 ## Parte (d). Como crea procesos el backend multiprocessing de joblib
 
@@ -347,17 +325,9 @@ La eficiencia de las tres versiones cae de forma bastante consistente a medida q
 
 `bs_numpy` es la que mejor se comporta en las dos métricas, mayor speedup en p=8 (2.535) y también mejor eficiencia en casi todos los p intermedios. Tiene sentido, cada una de sus 48 tareas es la más liviana de las tres versiones (resuelve directamente las ecuaciones normales, como vimos en la parte b), así que el trabajo útil por tarea es más chico en comparación con el overhead fijo de repartir esa tarea a un proceso, lo que en teoría debería jugar en contra suyo, pero en la práctica sale mejor parada que las otras dos de todas formas.
 
-### Qué dice la ley de Amdahl de estos números
+### Comparando con la ley de Amdahl
 
-La clase 7 define el speedup máximo posible en función de una fracción serial f, Sp menor o igual a 1 dividido por f más 1 menos f dividido por p. Dando vuelta esa fórmula, se puede usar el S(8) medido de cada versión para calcular qué fracción serial f explicaría ese resultado si el único motivo del speedup imperfecto fuera código no paralelizable.
-
-`bs_numpy` con S(8) igual a 2.535 implica una f de 0.308.
-
-`bs_sklearn` con S(8) igual a 1.967 implica una f de 0.438.
-
-`bs_auto` con S(8) igual a 1.819 implica una f de 0.485.
-
-Ojo con leer esto de forma literal. Las 48 tareas de nuestro bootstrap son independientes entre sí, no hay ninguna parte del algoritmo que sea intrínsecamente serial en el sentido de la clase 7. Lo que esta f está capturando en la práctica es todo el overhead que sí medimos en las partes (d) y (e), crear y coordinar procesos, y el ruido de una máquina compartida, disfrazado de fracción serial porque la fórmula de Amdahl no distingue entre las dos cosas. Que `bs_auto` necesite la f más alta para explicar su speedup (0.485) calza con que también fue la versión más lenta y más irregular en la parte (f). La parte (h) va a separar esto de forma más directa, calculando el overhead T0 en vez de inferir una f a partir del speedup.
+La clase 7 dice que el speedup máximo posible depende de qué tan grande sea la parte del programa que no se puede paralelizar. Ninguna de nuestras 48 tareas depende de otra, así que en teoría casi todo debería paralelizarse bien. Que el speedup real quede tan lejos de p, como se ve en las tablas de arriba, nos dice que lo que está limitando el resultado no es el algoritmo en sí, sino el overhead de crear y coordinar procesos que ya habíamos visto en la parte (d), más el ruido propio de esta máquina. La parte (h) mide ese overhead de forma directa.
 
 ## Parte (h). Overhead T sub o de p
 
@@ -412,11 +382,11 @@ Estos son los resultados en este computador. La columna T0 sobre T1 muestra el o
 
 En las tres versiones T0 crece con p, y crece más rápido que T1. En p=8, el overhead ya es entre 2 y 3.4 veces el tiempo que tomaba correr todo con un solo proceso, según la versión. Dicho de otra forma, de todo el tiempo de cómputo que sumaron los 8 procesos juntos, más de dos tercios en el peor caso se fue en coordinación y esperas, no en avanzar el ajuste del bootstrap.
 
-`bs_numpy` tiene el overhead relativo más bajo en casi todos los p, calza con que también fue la versión con mejor eficiencia en la parte (g), y no es casualidad, las dos métricas describen exactamente lo mismo desde ángulos distintos. De hecho se puede escribir Ep en función de T0, ya que p por Tp es igual a T1 más T0, entonces Ep es igual a 1 dividido por 1 más T0 sobre T1. Con `bs_numpy` en p=8, T0 sobre T1 vale 2.156, así que Ep predicho es 1 dividido por 3.156, que da 0.317, exactamente lo que habíamos calculado de forma independiente en la parte (g). La parte (g) y esta parte (h) no son dos experimentos distintos, son la misma medición mirada con dos fórmulas distintas de la clase 7.
+`bs_numpy` tiene el overhead relativo más bajo en casi todos los p, lo que calza con que también fue la versión con mejor eficiencia en la parte (g). Tiene sentido, S(p), E(p) y T0(p) están midiendo lo mismo con fórmulas distintas de la clase 7, así que si una versión sale mejor parada en una, debería salir mejor parada en las otras también.
 
-También se nota que T0 no crece de forma perfectamente pareja, por ejemplo en `bs_numpy` el overhead en p=8 es un poco más chico que en p=7. Eso es el mismo ruido de la máquina compartida que venimos comentando desde la parte (e), no un fenómeno nuevo, y otra razón más para tomar estos números como una tendencia general y no como valores exactos.
+También se nota que T0 no crece de forma perfectamente pareja, por ejemplo en `bs_numpy` el overhead en p=8 es un poco más chico que en p=7. Es el mismo ruido de la máquina compartida que venimos comentando desde la parte (e), y otra razón para tomar estos números como una tendencia general y no como valores exactos.
 
-Por último, esta fórmula de T0 junta en un solo número dos cosas que en las partes anteriores sí separamos, el costo real de crear y coordinar procesos (parte d) y el ruido propio de esta máquina (parte e). La parte (i), variando threads además de procesos, es la que nos va a permitir ver si parte de este overhead se puede reducir eligiendo mejor la combinación de p y t, en vez de solo asumir que más procesos siempre ayudan.
+Esta fórmula de T0 junta en un solo número dos cosas que en partes anteriores sí separamos, el costo real de crear y coordinar procesos (parte d) y el ruido propio de esta máquina (parte e). La parte (i), variando threads además de procesos, nos va a mostrar si parte de este overhead se puede reducir eligiendo mejor la combinación de p y t.
 
 ## Parte (i). Grilla de procesos p y threads t con p por t hasta p_max
 
@@ -465,62 +435,51 @@ Esto calza con todo lo que veníamos midiendo. En la parte (d) vimos que cada pr
 
 Esto no quiere decir que la parte (b) haya estado mal al elegir joblib con procesos como esquema principal, el enunciado pide específicamente paralelismo con procesos, y además un problema más grande, con resamples más caros o con B mucho mayor a 48, podría cambiar esta conclusión, porque ahí el costo fijo de crear procesos pesaría menos frente al trabajo real de cada tarea. Lo que esta parte (i) deja claro es que esa suposición hay que medirla, no darla por sentada, y que la mejor combinación de p y t depende del tamaño del problema, no es siempre la misma.
 
-## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
+## Qué es del enunciado y qué agregamos nosotros
 
-La tarea tiene dependencias: (b) hay que tenerlo antes que casi todo lo
-demás. Por eso conviene que **una persona termine (b) primero** y las otras
-dos avancen en paralelo con las partes que **no** dependen de tener código
-corriendo:
+Dejamos esto anotado para que quede claro entre nosotros tres, y por si en
+algún momento nos piden explicar por qué el código tiene tantas partes.
+Las 10 partes con letra, de la (a) a la (j), son las que pide el enunciado
+tal cual, cada una con su propio archivo. Lo que sí fue iniciativa nuestra
+es cómo las resolvimos adentro, por ejemplo medir cada tiempo 3 veces y
+usar la mediana en vez de una sola corrida, porque en las primeras pruebas
+nos dimos cuenta que esta máquina compartida da resultados bastante
+distintos de una corrida a otra (queda contado en la parte b y en la
+parte e). También armamos `common.py` para no repetir el mismo código de
+cargar los datos en los 3 scripts de la parte (b). Nada de esto agrega
+partes que el enunciado no pida, es simplemente cómo decidimos ordenar el
+código para poder correrlo varias veces sin reescribir cosas.
 
-1. **Persona 1 (Ignacia)** — ya hizo (a). Sigue con **(b)**: las 3
-   implementaciones. Sube cada script apenas funcione, aunque no esté
-   optimizado (después se itera).
-2. **Persona 2** — puede partir ya con **(d)** (es teórico, no necesita
-   código: cómo `multiprocessing` crea procesos, fork vs spawn, copia de
-   memoria, qué pasa con `X` e `y` al lanzar p procesos) y dejar listo
-   **benchmark.py** (el script que corre cada versión para p=1..p_max y mide
-   tiempos), que solo se puede probar de verdad cuando (b) esté listo.
-3. **Persona 3** — arma el esqueleto de los gráficos con `matplotlib` para
-   T(p)/S(p)/E(p)/overhead (partes f, g, h) usando datos de prueba
-   (inventados) mientras (b) no está listo, así cuando lleguen los tiempos
-   reales solo hay que enchufar los datos.
+## Cómo va la división del trabajo
 
-Cuando (b) esté en el repo:
-- Cada persona corre `benchmark.py` **en su propio computador** (así se
-  cumple el requisito de "al menos 2 computadores distintos") y sube su
-  `results/results_<nombre>.csv`.
-- Con esos 2+ archivos de resultados se arman los gráficos de (f), (g), (h)
-  y la comparación de (j).
-- (c) y (e) se escriben una vez que hay resultados reales para comentar.
-- (i) lo hace quien terminó (b), usando la versión más eficiente de las 3.
+Hasta ahora Ignacia avanzó sola con las partes (a) a la (i), documentando
+cada una acá en el README a medida que las iba terminando. Falta que el
+grupo revise el código junto para que los 3 podamos explicar cualquier
+parte si nos preguntan, y falta la parte (j), que necesita correr
+`benchmark.py` en un segundo computador para poder comparar. Eso lo puede
+hacer cualquiera de los otros dos integrantes, siguiendo las instrucciones
+de la parte (f) más abajo. Después de eso queda armar el informe en PDF
+entre los 3, juntando lo que ya está escrito acá.
 
 ## Flujo de trabajo con git
 
 ```
-git clone <URL-del-repo>
-git checkout -b nombre-de-quien-trabaja   # opcional, o directo a main si prefieren simple
-# ... trabajan ...
+git clone https://github.com/IgnaciaNuyens/Computacion_alto_rendimiento.git
 git add archivo.py
 git commit -m "mensaje corto"
 git pull --rebase origin main
 git push origin main
 ```
 
-Como somos pocos y el código son scripts chicos, no hace falta un flujo muy
-formal: **avisar por el grupo antes de tocar un archivo que otro está
-editando**, comentar el `push` en el chat, y listo.
+Como somos pocos y el código son scripts chicos, no hace falta un flujo
+muy formal. Basta con avisar por el grupo antes de tocar un archivo que
+otra persona está editando, y comentar el push en el chat.
 
 ## Dónde compartimos el código
 
-GitHub (repo privado). Pasos para quien lo cree:
+El repo está en GitHub, es privado y ya tiene agregados a los 3
+integrantes como colaboradores.
 
-1. Crear un repo privado en github.com (ej. `tarea1-hpc-iic3533`).
-2. Agregar a los otros 2 integrantes como colaboradores (Settings → Collaborators),
-   con su usuario de GitHub.
-3. Conectar esta carpeta local:
-   ```
-   git remote add origin https://github.com/<usuario>/tarea1-hpc-iic3533.git
-   git add .
-   git commit -m "parte (a): generacion de datos"
-   git push -u origin main
-   ```
+```
+https://github.com/IgnaciaNuyens/Computacion_alto_rendimiento.git
+```

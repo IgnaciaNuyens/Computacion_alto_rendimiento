@@ -28,7 +28,7 @@ rng = np.random.default_rng(SEED)
 #     Son k+1 porque incluyen el intercepto beta_0.
 beta_true = rng.normal(loc=0.0, scale=1.0, size=k + 1)
 
-# (ii) Matriz de datos: N filas, k columnas, entradas i.i.d. N(0,1).
+# (ii) Matriz de datos, N filas, k columnas, entradas i.i.d. N(0,1).
 #      Se le agrega una columna de 1's al inicio -> X queda de tamano N x (k+1).
 X_raw = rng.normal(loc=0.0, scale=1.0, size=(N, k))
 ones_column = np.ones((N, 1))

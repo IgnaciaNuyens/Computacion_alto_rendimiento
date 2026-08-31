@@ -1,24 +1,16 @@
 """
 Tarea 1 - IIC3533. Parte (b): bootstrapping paralelo, version "auto".
 
-El bootstrapping (generar los resamples) Y el paralelismo son enteramente
-internos a sklearn.ensemble.BaggingRegressor(n_jobs=p): nosotros no
-generamos los resamples ni llamamos a joblib directamente (aunque por
-dentro BaggingRegressor SI usa joblib.Parallel, a traves del wrapper de
-paralelismo de sklearn).
+Acá el bootstrapping (generar los resamples) y el paralelismo los maneja
+sklearn.ensemble.BaggingRegressor(n_jobs=p) por dentro, nosotros no
+generamos los resamples ni llamamos a joblib directamente.
 
-Iteracion: se probo copy_X=False en el estimador base (igual que en
-bs_sklearn.py) pero se DESCARTO: a diferencia de bs_sklearn.py (que arma un
-Xb = X[idx] nuevo por resample), BaggingRegressor reutiliza internamente el
-mismo buffer de X entre estimadores (pasa un sample_weight con las cuentas
-del bootstrap en vez de duplicar filas), asi que copy_X=False deja que cada
-.fit() modifique ESE buffer compartido in-place -> se detecto empiricamente
-(std de los coeficientes bootstrap ~20x mas alto de lo esperado, resultados
-distintos entre p=1 y p=8) y se revirtio a copy_X=True (default). Buena
-leccion para la parte (b): "itere y comente sus mejoras" tambien significa
-descartar una optimizacion que resulta ser incorrecta, no solo quedarse con
-la mas rapida. Se mantiene threadpool_limits(threads) alrededor del .fit(),
-que si se verifico que da resultados identicos a variar solo la velocidad.
+Al principio probamos copy_X=False en el estimador base, igual que en
+bs_sklearn.py, pero acá dio resultados raros (la varianza de los
+coeficientes bootstrap quedaba mucho mas alta de lo esperado). Quedo
+documentado en el README, parte b, por que pasa eso, y por que en
+bs_sklearn.py si es seguro usarlo pero acá no. Lo dejamos en el valor por
+defecto (copy_X=True).
 
 Uso:
     python bs_auto.py --p 4 --B 48 --threads 1
@@ -51,7 +43,7 @@ def main():
     # asi que sus indices no calzan uno a uno con esas dos (comentado en la
     # parte c del informe).
     bagging = BaggingRegressor(
-        estimator=LinearRegression(fit_intercept=False),  # copy_X=True (default): ver nota arriba
+        estimator=LinearRegression(fit_intercept=False),  # copy_X=True por defecto, ver nota arriba
         n_estimators=args.B,
         max_samples=1.0,
         bootstrap=True,

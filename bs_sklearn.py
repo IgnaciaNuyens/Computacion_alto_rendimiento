@@ -1,15 +1,9 @@
 """
 Tarea 1 - IIC3533. Parte (b): bootstrapping paralelo, version "sklearn".
 
-El paralelismo lo manejamos NOSOTROS con joblib.Parallel(n_jobs=p): nosotros
+El paralelismo lo armamos nosotros con joblib.Parallel(n_jobs=p), nosotros
 generamos los B resamples y lanzamos un joblib.delayed por resample. El
 ajuste de cada resample lo hace sklearn.linear_model.LinearRegression.
-
-Iteracion: se agrego copy_X=False (evita que sklearn haga una copia interna
-extra del resample, que ya es una copia en si mismo por el fancy indexing
-X[idx]) y threadpool_limits(threads) alrededor del bloque paralelo, por la
-misma razon de oversubscription que en bs_numpy.py (ver ese archivo y el
-README para los numeros medidos).
 
 Uso:
     python bs_sklearn.py --p 4 --B 48 --threads 1
@@ -32,9 +26,10 @@ def fit_resample(X, y, seed):
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, X.shape[0], size=X.shape[0])
     Xb, yb = X[idx], y[idx]
-    # fit_intercept=False: X ya trae la columna de 1's (parte a), si no
-    # sklearn sumaria OTRO intercepto ademas del que ya esta en X.
-    # copy_X=False: no dupliques Xb en memoria, ya es una copia (X[idx]).
+    # fit_intercept=False porque X ya trae la columna de 1's (parte a), si
+    # no sklearn sumaria otro intercepto ademas del que ya esta en X.
+    # copy_X=False porque Xb ya es una copia nueva (X[idx] siempre copia),
+    # asi que no hace falta que sklearn copie de nuevo por dentro.
     model = LinearRegression(fit_intercept=False, copy_X=False)
     model.fit(Xb, yb)
     return model.coef_
@@ -46,10 +41,10 @@ def main():
 
     X, y, beta_true = load_data()
 
-    # Paso 1 del enunciado: beta_hat sobre el dataset completo (sin resamplear).
+    # Paso 1 del enunciado, beta_hat sobre el dataset completo (sin resamplear).
     beta_hat_full = LinearRegression(fit_intercept=False).fit(X, y).coef_
 
-    # Paso 2: B resamples, cada uno con su propia semilla independiente.
+    # Paso 2, B resamples, cada uno con su propia semilla independiente.
     # threadpool_limits evita oversubscription (ver bs_numpy.py / README).
     seeds = resample_seeds(args.B)
     with threadpool_limits(limits=args.threads):
