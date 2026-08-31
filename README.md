@@ -11,7 +11,7 @@ septiembre 2026, 23:59.**
 - [x] **(c) Correctitud y reproducibilidad** hecha con `verify_correctness.py`, resultados y explicación abajo.
 - [x] **(d) Cómo crea procesos el backend `multiprocessing` de joblib** hecha con `inspect_workers.py`, resultados y explicación abajo.
 - [x] **(e) Oversubscription con `threadpoolctl`** hecha con `oversubscription.py`, resultados y explicación abajo.
-- [ ] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones**
+- [x] **(f) Tiempos T(p) para p = 1..p_max, 3 versiones** hecha con `benchmark.py`, resultados y explicación abajo.
 - [ ] **(g) Speedup S(p) y eficiencia E(p)**
 - [ ] **(h) Overhead T_o(p)**
 - [ ] **(i) Grid de (procesos p) x (threads t) con p·t ≤ p_max**
@@ -58,10 +58,11 @@ bs_numpy.py                    # (b) - listo: joblib.Parallel + ecuaciones norma
 verify_correctness.py            # (c) - listo: reproducibilidad y correctitud entre las 3 versiones
 inspect_workers.py                 # (d) - listo: muestra que hace joblib con los procesos worker
 oversubscription.py                  # (e) - listo: threadpool_info() y tiempos variando p y t
-benchmark.py                           # (f) - TODO: corre las 3 versiones para p=1..p_max y guarda tiempos
+benchmark.py                           # (f) - listo: T(p) para las 3 versiones, p=1..p_max, con repeticiones
 grid_pt.py                               # (i) - TODO: grid (p, t) con threadpool_limits
-results/                               # csv/json de tiempos, por máquina (ver mas abajo)
+results/                               # csv de tiempos, por máquina (ver mas abajo)
   timings.csv                            # se genera solo, cada corrida de bs_*.py agrega una fila (gitignored)
+  benchmark_<nombre del computador>.csv    # se genera solo, benchmark.py agrega una fila por repetición (gitignored)
 plots/                                   # TODO: figuras para el informe
 informe/                                   # TODO: fuente del informe (o link a Overleaf en este README)
 ```
@@ -253,6 +254,37 @@ Lo más claro y sólido de esta medición es que ir de cero paralelismo (p=1, t=
 Lo que no se sostuvo fue la diferencia grande que habíamos medido en la parte (b) entre p=8 sin controlar threads y p=8 con `threadpool_limits(1)`. Con una sola corrida esa diferencia se veía clara, pero al repetir la medición y tomar la mediana, todas las combinaciones con p=8 quedaron parecidas entre sí, estén o no oversubscritas según nuestro criterio de p por t contra los cores disponibles. La lección de fondo, la misma que ya habíamos aplicado en la parte (c) para la reproducibilidad, es que una sola corrida no alcanza para concluir que un efecto de rendimiento es real, sobre todo en una máquina compartida como esta.
 
 Aun así, seguimos dejando el flag `--threads` en las 3 versiones y seguimos usando t=1 como valor por defecto cuando p se acerca a la cantidad de cores. No midió peor en ningún caso, y es la opción más simple de razonar, un core por proceso, así que la mantenemos como base para la parte (i), donde vamos a explorar la grilla completa de p y t con muchas más repeticiones, y ahí sí quedarnos con una conclusión firme sobre si conviene o no dejar que cada proceso use más de un thread interno cuando p ya está cerca del número de cores.
+
+## Parte (f). Tiempos T(p) para p desde 1 hasta p_max, en las 3 versiones
+
+Con las partes (b), (c), (d) y (e) ya resueltas, esta parte junta todo en un solo experimento, cuánto se demora cada versión al variar p desde 1 hasta p_max. Escribimos `benchmark.py` para esto, se corre así.
+
+```
+python benchmark.py --pmax 8 --B 48 --repeticiones 3
+```
+
+Usa threads=1 fijo, la opción que dejamos como base en la parte (e), y B=48 resamples, igual que en todas las partes anteriores. Aprendimos en la parte (e) que una sola corrida no alcanza en esta máquina compartida, así que `benchmark.py` repite cada combinación de versión y p tres veces y guarda las tres, no solo un promedio. Los resultados quedan en `results/benchmark_<nombre del computador>.csv`, listos para las partes (g), (h) y (j) sin tener que correr nada de nuevo, y como el nombre del archivo incluye el nombre del computador, cuando cada integrante lo corra en el suyo los archivos no se van a pisar entre sí.
+
+Esta es la mediana de las 3 repeticiones para cada combinación, en segundos, en este computador (`p_max` igual a 8 cores).
+
+| p | bs_numpy | bs_sklearn | bs_auto |
+|---|---|---|---|
+| 1 | 2.832 | 7.896 | 8.868 |
+| 2 | 2.047 | 8.718 | 10.040 |
+| 3 | 1.407 | 4.574 | 6.925 |
+| 4 | 1.485 | 5.670 | 5.350 |
+| 5 | 1.446 | 5.009 | 4.084 |
+| 6 | 1.404 | 6.234 | 4.095 |
+| 7 | 1.397 | 4.329 | 5.258 |
+| 8 | 1.117 | 4.013 | 4.875 |
+
+Algunas cosas para comentar en el informe, con estos números todavía crudos, antes de calcular speedup y eficiencia en la parte (g).
+
+`bs_numpy` es la más rápida en todos los p, y baja de forma bastante pareja a medida que p crece, de 2.832 segundos con un solo proceso a 1.117 con 8, algo más de dos veces y media más rápido, lejos del ideal de ocho veces que pediría un speedup perfecto.
+
+`bs_sklearn` y `bs_auto` no bajan de forma pareja, en p=2 las dos incluso empeoraron un poco respecto a p=1, y recién mejoran de forma clara desde p=3 en adelante. Esto es ruido de la máquina compartida (lo mismo que ya vimos en la parte e), pero también algo real, con solo 48 tareas para repartir, pasar de 1 a 2 procesos agrega el costo de crear un proceso nuevo (visto en la parte d) sin alcanzar a repartir tanto trabajo todavía, así que a veces el resultado no compensa de inmediato.
+
+Ninguna de las tres versiones se acerca al speedup ideal de p, para eso ya tenemos la parte (g), que va a poner estos mismos números en la fórmula de speedup y eficiencia de la clase 7 y va a dejar más claro cuánto de esta diferencia es overhead real y cuánto es la parte que efectivamente sí se pudo paralelizar.
 
 ## Cómo lo vamos a dividir (propuesta, ajusten si quieren)
 
